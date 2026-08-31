@@ -4,11 +4,18 @@
 #
 #   bash deploy/setup.sh
 #
-# Adds swap if missing, installs, builds, writes a .env, creates the database,
-# and starts the server under PM2 on port 3000. Safe to re-run: it skips
-# anything already done, and never overwrites an existing .env.
+# Adds swap if missing, installs, builds the client, writes a .env, creates the
+# database, and starts the server under PM2 on port 3000. Safe to re-run: it
+# skips anything already done and never overwrites an existing .env.
 #
 # It does NOT touch nginx -- it prints the block to paste at the end.
+#
+# The server is NOT compiled. PM2 runs the TypeScript directly through tsx, so
+# there is nothing to rebuild after a git pull. Only the client is built, and
+# that is not avoidable: browsers cannot load .tsx files, so something has to
+# turn them into JS. Doing it once here beats running Vite's dev server
+# permanently, which would hold the whole module graph in memory and make every
+# page load hundreds of requests instead of two.
 
 set -euo pipefail
 
@@ -19,13 +26,13 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 ok()  { printf '    \033[32m%s\033[0m\n' "$1"; }
 
 # --- 1. swap ---------------------------------------------------------------
-# A 2 GB box has none by default and the build gets OOM-killed, which shows up
-# as a bare "Killed" with no explanation.
+# A 2 GB box has none by default and the install gets OOM-killed, which shows
+# up as a bare "Killed" with no explanation.
 say "Swap"
 if [ "$(swapon --show --noheadings | wc -l)" -gt 0 ]; then
   ok "already present"
 else
-  ok "adding 2G swapfile (needed or the build gets killed)"
+  ok "adding 2G swapfile (needed or the install gets killed)"
   sudo fallocate -l 2G /swapfile
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile >/dev/null
@@ -33,15 +40,14 @@ else
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
 
-# --- 2. build --------------------------------------------------------------
+# --- 2. install and build the client ---------------------------------------
 say "Installing dependencies"
 pnpm install --frozen-lockfile
 
-say "Building"
+say "Building the client"
 pnpm --filter @nmu/server exec prisma generate
 pnpm --filter @nmu/web build
-pnpm --filter @nmu/server build
-ok "client -> apps/web/dist, server -> apps/server/dist/index.js"
+ok "client -> apps/web/dist (the server serves these files)"
 
 # --- 3. config -------------------------------------------------------------
 say "Configuration"
@@ -67,7 +73,7 @@ WEB_DIST=$ROOT/apps/web/dist
 
 SESSION_SECRET=$SECRET
 
-# Add your server's address here so the browser is allowed to talk to it.
+# Set this to the address you actually type in the browser.
 CORS_ORIGINS=http://localhost:3000
 
 # Leave empty to hide the Google button entirely.
@@ -90,18 +96,22 @@ say "Starting under PM2"
 sudo mkdir -p /var/log/no-mercy-uno
 sudo chown "$USER" /var/log/no-mercy-uno
 
-# The ecosystem file hardcodes /var/www/no-mercy-uno; start from the real path
-# instead so this works wherever the repo actually lives.
 pm2 delete no-mercy-uno >/dev/null 2>&1 || true
-pm2 start apps/server/dist/index.js \
+
+# node --import tsx runs the TypeScript straight from src. One instance only:
+# rooms live in an in-process Map with no Redis adapter, so a second worker
+# would put players from the same room on different processes.
+pm2 start src/index.ts \
   --name no-mercy-uno \
   --cwd "$ROOT/apps/server" \
+  --interpreter node \
+  --interpreter-args "--import tsx" \
   -i 1 \
   --time \
-  --max-memory-restart 500M
+  --max-memory-restart 600M
 pm2 save >/dev/null
 
-sleep 2
+sleep 3
 if curl -fsS -m 5 http://127.0.0.1:3000/api/health >/dev/null; then
   ok "server is up on 127.0.0.1:3000"
 else
