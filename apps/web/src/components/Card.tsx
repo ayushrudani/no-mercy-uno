@@ -35,10 +35,36 @@ export const COLOR_HEX: Record<Color, string> = {
 
 export type CardSize = 'sm' | 'md' | 'lg';
 
-const SIZE: Record<CardSize, { w: number; h: number; glyph: number; label: number; index: number }> = {
-  sm: { w: 38, h: 57, glyph: 17, label: 5.5, index: 8 },
-  md: { w: 60, h: 90, glyph: 27, label: 7.5, index: 11 },
-  lg: { w: 84, h: 126, glyph: 38, label: 10, index: 15 },
+/**
+ * Sizes come from CSS custom properties, not fixed pixels.
+ *
+ * The table has to fit a phone in landscape (~390px tall) and a desktop window
+ * in the same three-band layout. Hardcoding 126px for a pile card meant the
+ * bands could not all fit on a handset and the hand was clipped off the bottom
+ * of the screen. The tokens and their height breakpoints live in index.css.
+ */
+const SIZE: Record<CardSize, { w: string; h: string; glyph: string; label: string; index: string }> = {
+  sm: {
+    w: 'var(--mini-w)',
+    h: 'var(--mini-h)',
+    glyph: 'var(--mini-glyph)',
+    label: 'var(--mini-label)',
+    index: 'var(--mini-index)',
+  },
+  md: {
+    w: 'var(--card-w)',
+    h: 'var(--card-h)',
+    glyph: 'var(--card-glyph)',
+    label: 'var(--card-label)',
+    index: 'var(--card-index)',
+  },
+  lg: {
+    w: 'var(--pile-w)',
+    h: 'var(--pile-h)',
+    glyph: 'var(--pile-glyph)',
+    label: 'var(--pile-label)',
+    index: 'var(--pile-index)',
+  },
 };
 
 /** Centre glyph, a word beneath it where that helps, and the corner mark. */
@@ -241,7 +267,11 @@ export function CardBack({
       />
       <span
         className="absolute inset-0 grid place-items-center text-center font-black italic leading-none"
-        style={{ fontSize: s.glyph * 0.3, color: skin.ink, textShadow: '0 1px 3px rgb(0 0 0 / .5)' }}
+        style={{
+          fontSize: `calc(${s.glyph} * 0.3)`,
+          color: skin.ink,
+          textShadow: '0 1px 3px rgb(0 0 0 / .5)',
+        }}
       >
         NO
         <br />

@@ -396,6 +396,7 @@ export class Room {
     if (r.stackRequiresColorMatch !== undefined) out.stackRequiresColorMatch = r.stackRequiresColorMatch;
     if (r.rouletteColorChosenBy !== undefined) out.rouletteColorChosenBy = r.rouletteColorChosenBy;
     if (r.eliminationAt !== undefined) out.eliminationAt = r.eliminationAt;
+    if (r.roundsToWin !== undefined) out.roundsToWin = r.roundsToWin;
     if (r.handSize !== undefined) out.handSize = r.handSize;
     return out;
   }
@@ -461,8 +462,21 @@ export class Room {
     this.status = 'finished';
 
     const winnerId = game.winnerId;
-    // Last eliminated is runner-up: reverse the knockout order, winner first.
-    const standings = [winnerId, ...[...this.eliminationOrder].reverse()].filter(
+
+    /**
+     * Standings, winner first.
+     *
+     * With knock-out on, the running order falls out of who was removed and
+     * when: last out is runner-up. With it off nobody is ever removed, so rank
+     * by rounds won instead -- otherwise the board would show only the winner.
+     */
+    const knockedOut = [...this.eliminationOrder].reverse();
+    const byRounds = [...game.players]
+      .filter((p) => p.id !== winnerId)
+      .sort((a, b) => b.roundsWon - a.roundsWon)
+      .map((p) => p.id);
+
+    const standings = [winnerId, ...(knockedOut.length > 0 ? knockedOut : byRounds)].filter(
       (id): id is string => typeof id === 'string',
     );
 

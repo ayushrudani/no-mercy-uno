@@ -171,6 +171,8 @@ function drawUntilColor(s: GameState, seat: number, color: Color, events: GameEv
 
 function checkElimination(s: GameState, seat: number, events: GameEvent[]): void {
   const player = s.players[seat]!;
+  // 0 means knock-out is switched off for this room.
+  if (s.config.eliminationAt <= 0) return;
   if (player.eliminated || player.hand.length < s.config.eliminationAt) return;
 
   player.eliminated = true;
@@ -265,12 +267,17 @@ function startRound(s: GameState, leadSeat: number, events: GameEvent[]): void {
 function checkRoundOrGameEnd(s: GameState, events: GameEvent[]): boolean {
   const alive = activeSeats(s);
 
-  if (alive.length <= 1) {
-    const winner = alive[0];
-    s.winnerId = winner !== undefined ? s.players[winner]!.id : null;
+  const endGame = (winnerId: string | null): true => {
+    s.winnerId = winnerId;
     s.phase = { t: 'gameOver' };
-    if (s.winnerId) events.push({ t: 'gameEnded', winnerId: s.winnerId });
+    if (winnerId) events.push({ t: 'gameEnded', winnerId });
     return true;
+  };
+
+  // Last player standing. Only a win condition when knock-out is enabled --
+  // with it off nobody is ever removed, so this can only mean an empty table.
+  if (alive.length <= 1) {
+    return endGame(alive[0] !== undefined ? s.players[alive[0]]!.id : null);
   }
 
   const wentOut = alive.find((seat) => s.players[seat]!.hand.length === 0);
@@ -278,6 +285,13 @@ function checkRoundOrGameEnd(s: GameState, events: GameEvent[]): boolean {
     const winner = s.players[wentOut]!;
     winner.roundsWon += 1;
     events.push({ t: 'roundEnded', winnerId: winner.id });
+
+    // First to N rounds. Checked after the increment so the round that wins
+    // the game is still reported as a round win first.
+    if (s.config.roundsToWin > 0 && winner.roundsWon >= s.config.roundsToWin) {
+      return endGame(winner.id);
+    }
+
     startRound(s, wentOut, events);
     return true;
   }
@@ -663,6 +677,16 @@ function applyDraw(s: GameState, playerId: string, events: GameEvent[]): void {
   if (s.pendingDraw > 0) {
     const count = s.pendingDraw;
     const given = giveCards(s, seat, count, events);
+
+    // Same exhaustion case as below: nothing left to hand out.
+    if (given === 0) {
+      s.pendingDraw = 0;
+      s.pendingTier = 0;
+      events.push({ t: 'roundStalemate' });
+      startRound(s, seat, events);
+      return;
+    }
+
     events.push({ t: 'drew', playerId, count: given, reason: 'stack' });
     s.pendingDraw = 0;
     s.pendingTier = 0;
@@ -674,6 +698,24 @@ function applyDraw(s: GameState, playerId: string, events: GameEvent[]): void {
   }
 
   const given = giveCards(s, seat, 1, events);
+
+  /**
+   * A draw that yields nothing means every card is in somebody's hand: the
+   * draw pile is empty and the discard pile is down to its top card, so there
+   * is nothing left to recycle.
+   *
+   * With knock-out enabled this cannot really happen -- players are removed at
+   * 25 cards and their hands go back into circulation. With it disabled hands
+   * grow without bound, and the table can reach a state where nobody can play
+   * and nobody can draw. Re-deal instead of leaving the game wedged. Nobody
+   * went out, so nobody is credited a round.
+   */
+  if (given === 0) {
+    events.push({ t: 'roundStalemate' });
+    startRound(s, seat, events);
+    return;
+  }
+
   events.push({ t: 'drew', playerId, count: given, reason: 'turn' });
   checkElimination(s, seat, events);
   if (checkRoundOrGameEnd(s, events)) return;

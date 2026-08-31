@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { api, tokenStore, type Profile } from './lib/api.js';
 import { useNetworkAlerts, useStore } from './lib/store.js';
 import { sound } from './lib/sound.js';
-import { ReconnectOverlay, RotateGate, Toasts, useNeedsRotation } from './components/table-parts.js';
+import { ReconnectOverlay, Toasts } from './components/table-parts.js';
 import { SignIn } from './screens/SignIn.js';
 import { ProfileScreen } from './screens/Profile.js';
 import { Lobby } from './screens/Lobby.js';
@@ -26,7 +26,6 @@ export function App() {
 
   const [restoring, setRestoring] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
-  const needsRotation = useNeedsRotation();
 
   // Restore the session on load. The httpOnly cookie proves who we are; the
   // stored token is what the socket handshake needs to present.
@@ -68,9 +67,7 @@ export function App() {
     return <SignIn onSignedIn={setProfile} />;
   }
 
-  // Only the table needs the width; the lobby reads fine in portrait.
   const inGame = !!room && room.status !== 'waiting' && !!snapshot;
-  if (inGame && needsRotation) return <RotateGate />;
 
   if (showProfile && !room) {
     return (

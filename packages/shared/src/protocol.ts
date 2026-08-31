@@ -61,7 +61,10 @@ export const ruleOverridesSchema = z.object({
   unoPenalty: z.number().int().min(1).max(10).optional(),
   stackRequiresColorMatch: z.boolean().optional(),
   rouletteColorChosenBy: z.enum(['target', 'player']).optional(),
-  eliminationAt: z.number().int().min(10).max(40).optional(),
+  /** 0 turns knock-out off entirely. */
+  eliminationAt: z.union([z.literal(0), z.number().int().min(10).max(40)]).optional(),
+  /** First to this many rounds wins. Only meaningful with knock-out off. */
+  roundsToWin: z.number().int().min(1).max(10).optional(),
   handSize: z.number().int().min(3).max(12).optional(),
 });
 export type RuleOverrides = z.infer<typeof ruleOverridesSchema>;
@@ -80,7 +83,10 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   turnSeconds: 30,
   // On by default: it is not an official No Mercy rule, but it is how this
   // group plays. The lobby exposes a toggle.
-  rules: { sevenZero: true, unoCall: true, unoPenalty: 2 },
+  // Knock-out off by default: being benched at 25 cards means one bad hand
+  // costs a friend the rest of the evening. First to three rounds keeps
+  // everyone playing and still produces a clear winner.
+  rules: { sevenZero: true, unoCall: true, unoPenalty: 2, eliminationAt: 0, roundsToWin: 3 },
 };
 
 // ---------------------------------------------------------------------------

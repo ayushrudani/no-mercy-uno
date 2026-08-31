@@ -155,16 +155,32 @@ export function Table({
 
   const nearElimination = (me?.hand.length ?? 0) >= 20;
 
+  // The seat token changes with viewport height, so the SVG ring around my own
+  // avatar has to read the resolved value rather than assume a fixed size.
+  const [mySeatRing, setMySeatRing] = useState(38);
+  useEffect(() => {
+    const measure = () => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue('--seat');
+      const n = parseFloat(raw);
+      setMySeatRing((Number.isFinite(n) && n > 0 ? n : 44) * 0.8 + 6);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
   return (
     <LayoutGroup>
       <div className="table-felt safe-inset relative flex h-screen-safe flex-col overflow-hidden">
         {/* --- top bar ---------------------------------------------------- */}
-        <div className="flex items-center justify-between px-3 pt-2">
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className="rounded-full bg-white/8 px-2 py-1 font-bold tracking-[0.15em] text-white/70 ring-1 ring-white/10">
+        {/* Wraps and shrinks: at 390px wide the labelled controls overflowed and
+            pushed "leave" off the edge. Labels collapse to icons below sm. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 pt-2 sm:px-3">
+          <div className="flex min-w-0 items-center gap-1.5 text-[10px]">
+            <span className="shrink-0 rounded-full bg-white/8 px-2 py-1 font-bold tracking-[0.15em] text-white/70 ring-1 ring-white/10">
               {room.code}
             </span>
-            <span className="text-white/35">round {view.round}</span>
+            <span className="hidden text-white/35 sm:inline">round {view.round}</span>
             <motion.span
               key={view.direction}
               initial={{ rotate: -180, opacity: 0 }}
@@ -175,7 +191,7 @@ export function Table({
             </motion.span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <NetworkPill rtt={rtt} connection={connection} />
             <VoiceControls
               voiceOn={voiceOn}
@@ -202,7 +218,7 @@ export function Table({
             <button
               type="button"
               onClick={() => setMuted(!muted)}
-              className="rounded-full bg-white/8 px-2.5 py-1 text-[11px] ring-1 ring-white/10 transition hover:bg-white/12"
+              className="shrink-0 rounded-full bg-white/8 px-2.5 py-1 text-[11px] ring-1 ring-white/10 transition hover:bg-white/12"
               aria-label={muted ? 'unmute' : 'mute'}
             >
               {muted ? '🔇' : '🔊'}
@@ -210,15 +226,21 @@ export function Table({
             <button
               type="button"
               onClick={() => run(leaveRoom)}
-              className="rounded-full bg-white/8 px-2.5 py-1 text-[10px] text-white/60 ring-1 ring-white/10 transition hover:bg-white/12"
+              className="shrink-0 rounded-full bg-white/8 px-2.5 py-1 text-[10px] text-white/60 ring-1 ring-white/10 transition hover:bg-white/12"
+              aria-label="leave room"
             >
-              leave
+              <span className="sm:hidden">✕</span>
+              <span className="hidden sm:inline">leave</span>
             </button>
           </div>
         </div>
 
         {/* --- opponents --------------------------------------------------- */}
-        <div className="flex shrink-0 items-start justify-center gap-5 px-4 pt-2">
+        {/* Wraps: eight seats do not fit one row on a phone, and a horizontal
+            scroll for opponents would hide half the table. */}
+        <div
+          className="flex shrink-0 flex-wrap items-start justify-center gap-x-4 gap-y-1 px-3 pt-2"
+        >
           {opponents.map((p) => (
             <Seat
               key={p.id}
@@ -258,14 +280,18 @@ export function Table({
             <div className="flex items-center gap-2">
               <div className="relative">
                 <div
-                  className={`grid h-9 w-9 place-items-center rounded-full bg-white/10 text-[10px] font-bold ring-2 transition-shadow duration-100 ${
+                  className={`grid place-items-center rounded-full bg-white/10 text-[10px] font-bold ring-2 transition-shadow duration-100 ${
                     isMyTurn ? 'ring-amber-300' : 'ring-white/15'
                   }`}
-                  style={{ boxShadow: speakingRing(levels[profile.id] ?? 0, micOn) }}
+                  style={{
+                    width: 'calc(var(--seat) * 0.8)',
+                    height: 'calc(var(--seat) * 0.8)',
+                    boxShadow: speakingRing(levels[profile.id] ?? 0, micOn),
+                  }}
                 >
                   {profile.displayName.slice(0, 2).toUpperCase()}
                 </div>
-                {isMyTurn && <TurnRing seconds={seconds} total={turnTotal} size={34} />}
+                {isMyTurn && <TurnRing seconds={seconds} total={turnTotal} size={mySeatRing} />}
               </div>
 
               <span className="text-[11px] font-semibold text-white/85">
@@ -324,7 +350,7 @@ export function Table({
 
           {/* Horizontal scroll: a 24-card hand cannot fit, and squeezing it
               would make every card unreadable. */}
-          <div className="rail flex items-end gap-1.5 overflow-x-auto px-3 pb-2 pt-5">
+          <div className="rail flex items-end gap-1.5 overflow-x-auto px-3 pb-2 pt-4">
             <AnimatePresence mode="popLayout" initial={false}>
               {me?.hand.map((card) => (
                 <CardFace

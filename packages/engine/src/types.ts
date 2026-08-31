@@ -48,8 +48,21 @@ export type ColoredCard = Extract<Card, { color: Color }>;
 export interface GameConfig {
   /** Hand size dealt at the start of each round. */
   handSize: number;
-  /** Hand size at which a player is eliminated from the game. */
+  /**
+   * Hand size at which a player is knocked out. **0 disables knock-out.**
+   *
+   * This is the official No Mercy rule, and it is also the game's win
+   * condition -- last player standing. Turning it off therefore requires
+   * `roundsToWin`, or nothing would ever end.
+   */
   eliminationAt: number;
+  /**
+   * First player to win this many rounds wins the game. 0 disables.
+   *
+   * The alternative to knock-out: nobody is ever removed, so nobody spends the
+   * evening spectating, and there is still a definite winner.
+   */
+  roundsToWin: number;
   /** Must a stacked draw card also match the active colour? Official: no. */
   stackRequiresColorMatch: boolean;
   /** Who names the colour when Color Roulette resolves. */
@@ -182,6 +195,8 @@ export type GameEvent =
   | { t: 'unoPenalty'; playerId: string; count: number }
   | { t: 'eliminated'; playerId: string; handSize: number }
   | { t: 'roundEnded'; winnerId: string }
+  /** Nobody could move and the deck was spent, so the round was re-dealt. */
+  | { t: 'roundStalemate' }
   | { t: 'gameEnded'; winnerId: string }
   | { t: 'turnPassed'; playerId: string };
 

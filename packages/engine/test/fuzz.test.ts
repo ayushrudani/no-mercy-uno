@@ -33,7 +33,9 @@ function assertInvariants(s: GameState, label: string): void {
     `${label}: no duplicated card ids`).toBe(DECK_TOTAL);
 
   for (const p of s.players) {
-    expect(p.hand.length, `${label}: ${p.id} under the elimination limit`).toBeLessThan(s.config.eliminationAt);
+    if (s.config.eliminationAt > 0) {
+      expect(p.hand.length, `${label}: ${p.id} under the elimination limit`).toBeLessThan(s.config.eliminationAt);
+    }
     if (p.eliminated) expect(p.hand, `${label}: eliminated players hold nothing`).toHaveLength(0);
     // A standing call on a hand of three would silently excuse the next
     // failure to call, which is exactly the bug worth catching.
@@ -128,7 +130,8 @@ function playGame(
 
   assertInvariants(state, `seed ${seed} initial`);
 
-  for (let turn = 0; turn < 4000; turn++) {
+  const cap = config.eliminationAt === 0 ? 1500 : 4000;
+  for (let turn = 0; turn < cap; turn++) {
     if (state.phase.t === 'gameOver') return { finished: true, turns: turn };
     const action = randomAction(state, rng);
     const result = reduce(state, action);
@@ -139,7 +142,7 @@ function playGame(
     if (state.phase.t !== 'gameOver') tableView(state);
   }
 
-  return { finished: false, turns: 4000 };
+  return { finished: false, turns: cap };
 }
 
 /**
@@ -196,6 +199,34 @@ describe('fuzz: random legal play never breaks an invariant', () => {
         if (res.finished) finished++;
       }
       expect(finished, `${playerCount}-player 7-0 games that reached a winner`).toBe(GAMES);
+    });
+  }
+
+  /**
+   * Knock-out off, first-to-N rounds instead.
+   *
+   * Termination is deliberately NOT asserted here, and that is a real property
+   * of the mode rather than a gap in the test. With knock-out on, a player who
+   * hoards cards is eventually removed and their hand returns to the deck --
+   * that is the forcing function that guarantees an end. With it off there is
+   * none, and this fuzz player is pathological: it draws at random even when it
+   * could play, and always eats a stack rather than answering it, so it almost
+   * never empties a hand. Real players shed cards and go out every round.
+   *
+   * What still must hold is every invariant: cards conserved, no duplicated
+   * ids, an actor who can always act, and no wedged table. Those are checked
+   * after every single action inside playGame.
+   */
+  for (const playerCount of [2, 4, 6]) {
+    it(`holds every invariant for ${GAMES} no-knock-out games with ${playerCount} players`, () => {
+      for (let i = 0; i < GAMES; i++) {
+        playGame(i * 3313 + playerCount, playerCount, {
+          eliminationAt: 0,
+          roundsToWin: 3,
+          sevenZero: true,
+          unoCall: true,
+        });
+      }
     });
   }
 

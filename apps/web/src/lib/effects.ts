@@ -166,6 +166,12 @@ export function effectFor(e: GameEvent, myId: string, nameOf: (id: string) => st
         },
       };
 
+    case 'roundStalemate':
+      return {
+        sound: 'shuffle',
+        moment: { text: 'STALEMATE', sub: 'deck ran dry — redealing', tone: 'neutral' },
+      };
+
     case 'roundEnded':
       return {
         sound: 'round',

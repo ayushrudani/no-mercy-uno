@@ -71,6 +71,17 @@ export function TurnRing({
 // Opponents
 // ---------------------------------------------------------------------------
 
+/**
+ * The seat avatar is sized by a CSS token that changes with viewport height, so
+ * the SVG turn ring has to read the resolved pixel value rather than assume one.
+ */
+function seatPx(): number {
+  if (typeof window === 'undefined') return 44;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--seat');
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : 44;
+}
+
 export function Seat({
   player,
   member,
@@ -99,13 +110,17 @@ export function Seat({
       <div className="relative">
         <div
           className={[
-            'grid h-11 w-11 place-items-center rounded-full text-sm font-bold',
+            'grid place-items-center rounded-full text-[0.7rem] font-bold',
             'bg-white/10 ring-2 transition-shadow duration-100',
             isTurn ? 'ring-amber-300' : 'ring-white/15',
           ].join(' ')}
-          // A live level ring beats a static "mic on" dot: it tells you who is
-          // actually talking, which is the thing you want to know.
-          style={{ boxShadow: speakingRing(level, member?.micOn ?? false) }}
+          style={{
+            width: 'var(--seat)',
+            height: 'var(--seat)',
+            // A live level ring beats a static "mic on" dot: it tells you who
+            // is actually talking, which is the thing you want to know.
+            boxShadow: speakingRing(level, member?.micOn ?? false),
+          }}
         >
           {member?.avatarUrl ? (
             <img src={member.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
@@ -113,7 +128,7 @@ export function Seat({
             name.slice(0, 2).toUpperCase()
           )}
         </div>
-        {isTurn && <TurnRing seconds={seconds} total={turnTotal} />}
+        {isTurn && <TurnRing seconds={seconds} total={turnTotal} size={seatPx() + 8} />}
         {/* Card count is the only thing an opponent's hand exposes. */}
         <span className="absolute -bottom-1 -right-1 min-w-5 rounded-full bg-black/80 px-1 text-center text-[10px] font-bold ring-1 ring-white/25">
           {player.eliminated ? '✕' : player.cardCount}
@@ -132,12 +147,16 @@ export function Seat({
 
       {/* A fan of backs, capped so a 20-card hand does not overflow the seat. */}
       {!player.eliminated && (
-        <div className="flex h-4 items-start">
+        <div className="flex items-start">
           {Array.from({ length: Math.min(player.cardCount, 6) }).map((_, i) => (
             <div
               key={i}
-              className="h-4 w-2.5 rounded-[2px] bg-white/40 ring-1 ring-inset ring-white/50"
-              style={{ marginLeft: i === 0 ? 0 : -5 }}
+              className="rounded-[2px] bg-white/40 ring-1 ring-inset ring-white/50"
+              style={{
+                width: 'calc(var(--seat) * 0.22)',
+                height: 'calc(var(--seat) * 0.36)',
+                marginLeft: i === 0 ? 0 : 'calc(var(--seat) * -0.11)',
+              }}
             />
           ))}
         </div>
@@ -182,7 +201,7 @@ export function Piles({
   const forced = canDraw && pendingDraw > 0;
 
   return (
-    <div className="flex items-center gap-7">
+    <div className="flex items-center" style={{ gap: 'var(--gap)' }}>
       <div className="relative flex flex-col items-center gap-2">
         {/* A visible stack of backs: a single card never looked like a deck. */}
         <button
@@ -238,7 +257,7 @@ export function Piles({
       </div>
 
       <div className="relative flex flex-col items-center gap-2">
-        <div className="relative h-[126px] w-[84px]">
+        <div className="relative" style={{ width: 'var(--pile-w)', height: 'var(--pile-h)' }}>
           {/* Two static layers give the pile depth. Only the top card is sent to
               the client, so these are decoration -- tilted like a real pile. */}
           <div className="absolute inset-0 rotate-[-9deg] rounded-xl bg-black/45 ring-1 ring-inset ring-white/10" />
@@ -477,41 +496,10 @@ export function Toasts({
 // ---------------------------------------------------------------------------
 
 /**
- * The table needs width. On a narrow portrait screen we ask for a rotation
- * rather than shipping a cramped second layout -- desktop and tablets are left
- * alone, since they are wide enough either way.
+ * There is deliberately no rotate-to-landscape gate any more.
+ *
+ * It existed because the table was sized in fixed pixels and genuinely did not
+ * fit a narrow screen. Now that every element is sized from height-aware CSS
+ * tokens and the seat row wraps, portrait works -- and blocking the app behind
+ * "turn your phone" was a worse experience than a slightly tighter layout.
  */
-export function useNeedsRotation(): boolean {
-  const [needs, setNeeds] = useState(false);
-
-  useEffect(() => {
-    const check = () => {
-      const portrait = window.innerHeight > window.innerWidth;
-      const small = Math.min(window.innerWidth, window.innerHeight) < 600;
-      setNeeds(portrait && small);
-    };
-    check();
-    window.addEventListener('resize', check);
-    window.addEventListener('orientationchange', check);
-    return () => {
-      window.removeEventListener('resize', check);
-      window.removeEventListener('orientationchange', check);
-    };
-  }, []);
-
-  return needs;
-}
-
-export function RotateGate() {
-  return (
-    <div className="grid h-screen-safe place-items-center bg-ink px-8 text-center">
-      <div>
-        <div className="text-5xl">📱</div>
-        <h1 className="mt-4 text-lg font-bold">Turn your phone sideways</h1>
-        <p className="mt-2 text-sm text-slate-400">
-          No Mercy needs the width to fit everyone at the table.
-        </p>
-      </div>
-    </div>
-  );
-}

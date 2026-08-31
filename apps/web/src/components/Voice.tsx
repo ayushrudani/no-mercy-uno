@@ -45,9 +45,12 @@ export function VoiceControls({
         type="button"
         onClick={onJoin}
         disabled={connecting}
-        className="rounded-full bg-gradient-to-b from-uno-green to-uno-green-deep px-2.5 py-1 text-[10px] font-bold shadow-lg shadow-emerald-900/40 transition hover:brightness-110 disabled:opacity-45"
+        className="shrink-0 whitespace-nowrap rounded-full bg-gradient-to-b from-uno-green to-uno-green-deep px-2.5 py-1 text-[10px] font-bold shadow-lg shadow-emerald-900/40 transition hover:brightness-110 disabled:opacity-45"
       >
-        {connecting ? 'connecting…' : '🎙 join voice'}
+        {/* The label is the first thing to go on a narrow screen: the icon
+            already says what the button does. */}
+        {connecting ? '…' : '🎙'}
+        <span className="ml-1 hidden sm:inline">{connecting ? 'connecting…' : 'join voice'}</span>
       </button>
     );
   }

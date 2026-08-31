@@ -29,6 +29,81 @@
   --color-accent-2: #a78bfa;
 }
 
+/**
+ * Table sizing.
+ *
+ * Everything on the table is sized from these, because the constraint is
+ * viewport HEIGHT, not width: the table is a fixed three-band column (seats,
+ * piles, hand) and a phone in landscape is only ~390px tall. The pile card
+ * alone used to be 126px, so the bands could not all fit and the hand ran off
+ * the bottom edge.
+ *
+ * Breakpoints are on height for that reason. Width barely matters -- the hand
+ * scrolls sideways and the seat row wraps.
+ */
+:root {
+  --card-w: 60px;
+  --card-h: 90px;
+  --card-glyph: 27px;
+  --card-label: 7.5px;
+  --card-index: 11px;
+
+  --pile-w: 84px;
+  --pile-h: 126px;
+  --pile-glyph: 38px;
+  --pile-label: 10px;
+  --pile-index: 15px;
+
+  --mini-w: 38px;
+  --mini-h: 57px;
+  --mini-glyph: 17px;
+  --mini-label: 5.5px;
+  --mini-index: 8px;
+
+  --seat: 44px;
+  --gap: 1.25rem;
+}
+
+/* Short viewports: most phones in landscape, and small laptop windows. */
+@media (max-height: 560px) {
+  :root {
+    --card-w: 50px;
+    --card-h: 75px;
+    --card-glyph: 22px;
+    --card-label: 6.5px;
+    --card-index: 9px;
+
+    --pile-w: 66px;
+    --pile-h: 99px;
+    --pile-glyph: 30px;
+    --pile-label: 8px;
+    --pile-index: 12px;
+
+    --seat: 36px;
+    --gap: 0.875rem;
+  }
+}
+
+/* Properly small: iPhone-class handsets held sideways. */
+@media (max-height: 430px) {
+  :root {
+    --card-w: 42px;
+    --card-h: 63px;
+    --card-glyph: 18px;
+    --card-label: 5.5px;
+    --card-index: 8px;
+
+    --pile-w: 56px;
+    --pile-h: 84px;
+    --pile-glyph: 25px;
+    --pile-label: 7px;
+    --pile-index: 10px;
+
+    --seat: 30px;
+    --gap: 0.625rem;
+  }
+}
+
 html,
 body,
 #root {

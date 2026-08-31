@@ -44,9 +44,9 @@ export function ChatDrawer({
       <button
         type="button"
         onClick={() => onOpenChange(!open)}
-        className="relative rounded-full bg-white/8 px-2.5 py-1 text-[10px] text-white/60 ring-1 ring-white/10 transition hover:bg-white/12"
+        className="relative shrink-0 whitespace-nowrap rounded-full bg-white/8 px-2.5 py-1 text-[10px] text-white/60 ring-1 ring-white/10 transition hover:bg-white/12"
       >
-        chat
+        💬<span className="ml-1 hidden sm:inline">chat</span>
         {unread > 0 && !open && (
           <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-uno-red px-1 text-[9px] font-bold text-white">
             {unread > 9 ? '9+' : unread}
@@ -127,7 +127,7 @@ export function ReactionBar({ onReact }: { onReact: (r: Reaction) => void }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded-full bg-white/8 px-2.5 py-1 text-[11px] ring-1 ring-white/10 transition hover:bg-white/12"
+        className="shrink-0 rounded-full bg-white/8 px-2.5 py-1 text-[11px] ring-1 ring-white/10 transition hover:bg-white/12"
         aria-label="reactions"
       >
         😂
