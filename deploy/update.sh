@@ -3,7 +3,9 @@
 # Pull and redeploy.
 #
 #   bash deploy/update.sh                      # normal update
-#   bash deploy/update.sh --accept-data-loss   # when the schema drops a column
+#   bash deploy/update.sh --accept-data-loss   # schema drops a column
+#   bash deploy/update.sh --force-reset        # schema adds a required column
+#                                              # to a populated table; ALL DATA GOES
 #
 # The point of this script is the database step. The obvious update -- pull,
 # build, restart -- is wrong whenever prisma/schema.prisma has changed, and it
@@ -25,10 +27,23 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 ok()  { printf '    \033[32m%s\033[0m\n' "$1"; }
 warn() { printf '    \033[33m%s\033[0m\n' "$1"; }
 
-ACCEPT_DATA_LOSS=""
-if [ "${1:-}" = "--accept-data-loss" ]; then
-  ACCEPT_DATA_LOSS="--accept-data-loss"
-fi
+# Two different escape hatches, for two different refusals:
+#
+#   --accept-data-loss  a column or table is going away and Prisma wants it
+#                       said out loud.
+#   --force-reset       the schema adds a REQUIRED column with no default to a
+#                       table that already has rows. There is no value Prisma
+#                       could put in the existing rows, so no amount of
+#                       "accept data loss" helps -- the only way through is to
+#                       drop the database and recreate it empty.
+#
+# Neither is passed by default. A schema mistake should stop the deploy.
+DB_FLAG=""
+case "${1:-}" in
+  "") ;;
+  --accept-data-loss|--force-reset) DB_FLAG="$1" ;;
+  *) echo "unknown option: $1 (expected --accept-data-loss or --force-reset)" >&2; exit 2 ;;
+esac
 
 say "Pulling"
 git pull
@@ -50,11 +65,18 @@ fi
 
 # Regenerates the client as its final step, which is the part that a plain
 # pull-and-restart misses.
-if ! ( cd apps/server && pnpm exec prisma db push $ACCEPT_DATA_LOSS ); then
-  warn "prisma db push failed"
-  warn "If it refused because the change drops data, re-run:"
-  warn "    bash deploy/update.sh --accept-data-loss"
-  warn "Your database is unchanged, and $(basename "$DB_PATH").bak holds a copy."
+if ! ( cd apps/server && pnpm exec prisma db push $DB_FLAG ); then
+  warn "prisma db push failed -- read which of the two it is:"
+  warn ""
+  warn "  \"cannot be executed ... without a default value\" on a table with rows"
+  warn "      A new required column has no value for the rows already there."
+  warn "      Only a reset gets past it; --accept-data-loss will NOT:"
+  warn "          bash deploy/update.sh --force-reset      # drops ALL data"
+  warn ""
+  warn "  \"you may lose data\" / a column or table is being dropped"
+  warn "          bash deploy/update.sh --accept-data-loss"
+  warn ""
+  warn "Your database is untouched. $(basename "$DB_PATH").bak holds a copy."
   exit 1
 fi
 ok "schema and Prisma client are in sync"

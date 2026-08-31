@@ -82,12 +82,17 @@ column that no longer exists in the schema you are reading. `git pull` updates
 the schema file; nothing regenerates the client. `prisma db push` does, as its
 final step, which is why it is in the script.
 
-If the schema change drops a column, `db push` stops rather than destroy data.
-Re-run with the flag that says you mean it:
+When `db push` refuses, it is one of two different situations and they need
+different flags — the script prints which:
 
-```sh
-bash deploy/update.sh --accept-data-loss
-```
+| Refusal | Flag | Cost |
+|---|---|---|
+| A column or table is being dropped | `--accept-data-loss` | That column |
+| A new **required** column has no value for rows that already exist | `--force-reset` | **The whole database** |
+
+The second is not a permissions problem. There is no value Prisma could write
+into the existing rows, so `--accept-data-loss` cannot help and will simply
+fail again.
 
 The database is copied to `data/nmu.db.bak` before either path touches it.
 
@@ -112,12 +117,32 @@ and sign up again:
 
 ```sh
 cd /var/www/no-mercy-uno
-bash deploy/update.sh --accept-data-loss
+bash deploy/update.sh --force-reset
 ```
 
-`--accept-data-loss` is what makes Prisma go ahead with a change it cannot
-migrate row by row. Only this one upgrade needs it — leave it off every other
-time, so a schema mistake stops instead of deleting a column.
+**`--force-reset`, not `--accept-data-loss`.** They are not interchangeable and
+the wrong one just fails again:
+
+- `--accept-data-loss` permits *dropping* a column or table.
+- `--force-reset` drops the whole database and recreates it empty.
+
+This upgrade adds `username` and `passwordHash` as **required columns with no
+default**. Prisma has no value to put in the rows that already exist, so there
+is nothing for `--accept-data-loss` to allow — the refusal is not about
+permission, it is that the operation is impossible. A reset is the only way
+through:
+
+```
+Added the required column `passwordHash` to the `User` table without a default
+value. There are 2 rows in this table, it is not possible to execute this step.
+```
+
+Everything goes: the old accounts, and the match history pointing at them. That
+is the honest cost, and it is small — those accounts signed in with Google,
+which this build no longer has, so none of them could log in again anyway. The
+script copies the database to `data/nmu.db.bak` first, before it runs the push.
+
+Sign up again afterwards with the code from `SIGNUP_CODE`.
 
 Match rows survive the push, but they point at user ids that no longer exist,
 so the record panel will read empty until new games are played. On a fresh box
