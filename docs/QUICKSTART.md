@@ -16,11 +16,23 @@ git pull
 bash deploy/setup.sh
 ```
 
-It adds swap if missing, installs, builds, writes `apps/server/.env` with a
-generated secret, creates the SQLite database, and starts the server under PM2
-on **127.0.0.1:3000**. Safe to re-run — it never overwrites an existing `.env`.
+It adds swap if missing, installs, builds the client, writes
+`apps/server/.env` with a generated secret, creates the SQLite database, and
+starts the server under PM2 on **127.0.0.1:3000**. Safe to re-run — it never
+overwrites an existing `.env`.
 
 It finishes by printing the nginx block to paste.
+
+### Why there is still one build
+
+The **server is not compiled** — PM2 runs the TypeScript directly through
+`tsx`, so a `git pull` needs no rebuild at all.
+
+The **client is built once**, and that part is not avoidable: a browser cannot
+load `.tsx` files, so something has to turn them into JavaScript. The only way
+to skip it is to run Vite's dev server permanently, which holds the whole
+module graph in memory and makes every page load hundreds of requests instead
+of two — more setup and slower, not less.
 
 ## 2. Point nginx at port 3000
 
@@ -69,8 +81,11 @@ Open the site, type a name, create a room, share the code.
 ```sh
 cd /var/www/no-mercy-uno
 git pull
-bash deploy/setup.sh
+pnpm --filter @nmu/web build     # only if the client changed
+pm2 restart no-mercy-uno
 ```
+
+Server-only changes need just the restart — there is nothing to compile.
 
 ---
 

@@ -10,3 +10,23 @@ packages:
 # on deploy with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION. Keeping the policy in
 # the repo means the lockfile is always deployable.
 minimumReleaseAge: 1440
+
+# Version pins. pnpm 10 reads these here, not from package.json.
+#
+# electron-to-chromium is a build-time data table pulled in by browserslist via
+# Vite. It publishes several times a week, which makes it the package most
+# likely to be younger than the minimumReleaseAge window above and fail a
+# --frozen-lockfile install on the server.
+overrides:
+  electron-to-chromium: 1.5.416
+
+# Postinstall scripts are blocked by default in pnpm 10. These four genuinely
+# need theirs and the build fails without them:
+#   prisma / @prisma/engines  download the query engine binary
+#   esbuild                   installs its platform-specific binary
+# Anything not listed here still cannot run scripts, which is the point.
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - esbuild
+  - prisma
