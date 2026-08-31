@@ -80,12 +80,16 @@ Open the site, type a name, create a room, share the code.
 
 ```sh
 cd /var/www/no-mercy-uno
-git pull
-pnpm --filter @nmu/web build     # only if the client changed
-pm2 restart no-mercy-uno
+bash deploy/update.sh
 ```
 
-Server-only changes need just the restart — there is nothing to compile.
+Pulls, syncs the database schema, rebuilds the client and restarts.
+
+Do it with the script, not by hand. Pulling and restarting looks like enough —
+there is nothing to compile on the server — but it skips regenerating the
+Prisma client, so any change to `prisma/schema.prisma` fails at runtime with an
+error naming a column the schema no longer has. See
+[DEPLOY.md](DEPLOY.md#updating).
 
 ---
 

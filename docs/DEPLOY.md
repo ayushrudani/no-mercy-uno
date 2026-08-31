@@ -60,13 +60,40 @@ can reach it.
 
 ```sh
 cd /var/www/no-mercy-uno
-git pull
-pnpm --filter @nmu/web build     # only if the client changed
-pm2 restart no-mercy-uno
+bash deploy/update.sh
 ```
 
+Pulls, installs, backs up the database, syncs the schema, rebuilds the client
+and restarts PM2.
+
+**Use the script rather than doing it by hand.** The manual version --
+`git pull`, build, `pm2 restart` -- is silently wrong whenever
+`prisma/schema.prisma` has changed, and it fails in a way that does not look
+like a database problem:
+
+```
+Invalid `db().user.create()` invocation
+  Argument `googleSub` is missing.
+```
+
+The generated Prisma client is what validates a query, so a client left over
+from the previous schema rejects the write before SQLite ever sees it, naming a
+column that no longer exists in the schema you are reading. `git pull` updates
+the schema file; nothing regenerates the client. `prisma db push` does, as its
+final step, which is why it is in the script.
+
+If the schema change drops a column, `db push` stops rather than destroy data.
+Re-run with the flag that says you mean it:
+
+```sh
+bash deploy/update.sh --accept-data-loss
+```
+
+The database is copied to `data/nmu.db.bak` before either path touches it.
+
 **The server is never compiled.** PM2 runs the TypeScript straight from `src`
-through `tsx`, so a server-only change needs nothing but the restart.
+through `tsx`, so a code-only change needs nothing but the restart -- but a
+*schema* change needs the database step above.
 
 The client is built once because a browser cannot load `.tsx` files — something
 has to turn them into JavaScript. The only way to skip that is to run Vite's
@@ -84,15 +111,13 @@ signed in with Google, which no longer exists here, so the fix is to drop them
 and sign up again:
 
 ```sh
-cd /var/www/no-mercy-uno/apps/server
-cp prisma/dev.db prisma/dev.db.bak          # keep the old match history
-pnpm exec prisma db push --accept-data-loss
-pm2 restart no-mercy-uno
+cd /var/www/no-mercy-uno
+bash deploy/update.sh --accept-data-loss
 ```
 
 `--accept-data-loss` is what makes Prisma go ahead with a change it cannot
-migrate row by row. Without the flag it stops and explains, which is the
-behaviour you want on every *other* deploy — do not put it in a script.
+migrate row by row. Only this one upgrade needs it — leave it off every other
+time, so a schema mistake stops instead of deleting a column.
 
 Match rows survive the push, but they point at user ids that no longer exist,
 so the record panel will read empty until new games are played. On a fresh box
