@@ -20,6 +20,8 @@ import { speakingRing, VoiceControls } from '../components/Voice.js';
 import {
   ColorPicker,
   FullscreenButton,
+  HandRail,
+  HandSortToggle,
   NetworkPill,
   Piles,
   Seat,
@@ -30,9 +32,10 @@ import {
 } from '../components/table-parts.js';
 import { useGameEffects, useTurnChime } from '../lib/effects.js';
 import { turnActions } from '../lib/turn.js';
+import { isHandSort, sortHand, type HandSort } from '../lib/hand.js';
 import { sound } from '../lib/sound.js';
 import { nameOf, selectIsHost, useStore } from '../lib/store.js';
-import type { Profile } from '../lib/api.js';
+import { api, type Profile } from '../lib/api.js';
 
 const needsColorChoice = (c: Card) => c.k === 'wildReverseDraw4' || c.k === 'wildDraw';
 
@@ -88,7 +91,31 @@ export function Table({
   };
 
   const view = snapshot.view;
+  const setProfile = useStore((st) => st.setProfile);
+
   const me = view.you;
+
+  /**
+   * How the hand is ordered.
+   *
+   * Held here rather than read straight from the profile so flipping it is
+   * instant: the PATCH that persists it is fire-and-forget, and waiting for a
+   * round trip to reorder your own cards would feel broken. The profile is the
+   * source of truth on load and the toggle writes back to it.
+   */
+  const [handSort, setHandSortState] = useState<HandSort>(() =>
+    isHandSort(profile.handSort) ? profile.handSort : 'dealt',
+  );
+  const setHandSort = (next: HandSort) => {
+    setHandSortState(next);
+    setProfile({ ...profile, handSort: next });
+    void api.updateProfile({ handSort: next }).catch(() => {
+      // Persisting failed; the choice still applies for this session. Nothing
+      // worth interrupting a game for.
+    });
+  };
+
+  const myCards = useMemo(() => sortHand(me?.hand ?? [], handSort), [me?.hand, handSort]);
 
   // All action gating lives in one tested place: these checks got it wrong once
   // by looking at the table-wide phase without asking whose turn it is.
@@ -320,6 +347,9 @@ export function Table({
                   {me.hand.length}/25
                 </motion.span>
               )}
+              {me && me.hand.length > 1 && (
+                <HandSortToggle sort={handSort} onChange={setHandSort} />
+              )}
               {myPlace !== null && (
                 <span className="rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 ring-1 ring-amber-300/30">
                   finished #{myPlace}
@@ -360,27 +390,18 @@ export function Table({
             </div>
           </div>
 
-          {/* Horizontal scroll: a 24-card hand cannot fit, and squeezing it
-              would make every card unreadable. */}
-          <div className="rail flex items-end gap-1.5 overflow-x-auto px-3 pb-2 pt-4">
-            <AnimatePresence mode="popLayout" initial={false}>
-              {me?.hand.map((card) => (
-                <CardFace
-                  key={card.id}
-                  card={card}
-                  size="md"
-                  animate
-                  playable={isMyTurn && playableIds.has(card.id)}
-                  dimmed={!playableIds.has(card.id)}
-                  onClick={isMyTurn && playableIds.has(card.id) ? () => onCardClick(card) : undefined}
-                />
-              ))}
-            </AnimatePresence>
-            {me && me.hand.length === 0 && (
-              <span className="py-6 text-xs text-slate-400">no cards</span>
-            )}
-            {!me && <span className="py-6 text-xs text-slate-400">spectating</span>}
-          </div>
+          {me && me.hand.length > 0 && (
+            <HandRail
+              cards={myCards}
+              playableIds={playableIds}
+              isMyTurn={isMyTurn}
+              onCardClick={onCardClick}
+            />
+          )}
+          {me && me.hand.length === 0 && (
+            <div className="px-3 py-6 text-center text-xs text-slate-400">no cards</div>
+          )}
+          {!me && <div className="px-3 py-6 text-center text-xs text-slate-400">spectating</div>}
         </div>
 
         {/* --- overlays ---------------------------------------------------- */}

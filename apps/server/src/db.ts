@@ -72,6 +72,7 @@ export function touchUser(userId: string) {
 export async function updateProfile(userId: string, patch: ProfileUpdate) {
   const data: Record<string, unknown> = {};
   if (patch.displayName !== undefined) data['displayName'] = patch.displayName;
+  if (patch.handSort !== undefined) data['handSort'] = patch.handSort;
   if (patch.cardBack !== undefined) data['cardBack'] = patch.cardBack;
   if (patch.sfxVolume !== undefined) data['sfxVolume'] = patch.sfxVolume;
   if (patch.micDefaultOn !== undefined) data['micDefaultOn'] = patch.micDefaultOn;

@@ -59,6 +59,16 @@ export const passwordSchema = z
 
 export const chatTextSchema = z.string().trim().min(1).max(500);
 
+/**
+ * How a player's own hand is ordered on screen.
+ *
+ * `dealt` keeps the server's order, so cards stay where you last saw them.
+ * `color` groups by colour. Purely cosmetic and purely local to the viewer --
+ * the server never reorders a hand, and nobody else can tell which you use.
+ */
+export const handSortSchema = z.enum(['dealt', 'color']);
+export type HandSort = z.infer<typeof handSortSchema>;
+
 /** Turn clock in seconds; 0 disables it. */
 export const turnSecondsSchema = z.union([
   z.literal(0),
@@ -147,6 +157,7 @@ export const reactSchema = z.object({ reaction: reactionSchema });
 
 export const profileUpdateSchema = z.object({
   displayName: displayNameSchema.optional(),
+  handSort: handSortSchema.optional(),
   cardBack: z.string().trim().min(1).max(32).optional(),
   sfxVolume: z.number().int().min(0).max(100).optional(),
   micDefaultOn: z.boolean().optional(),

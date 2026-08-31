@@ -10,6 +10,7 @@ export interface Profile {
   mustResetPassword: boolean;
   displayName: string;
   avatarUrl: string | null;
+  handSort: string;
   cardBack: string;
   sfxVolume: number;
   micDefaultOn: boolean;
@@ -120,7 +121,7 @@ export const api = {
 
   signOut: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
-  updateProfile: (patch: Partial<Pick<Profile, 'displayName' | 'cardBack' | 'sfxVolume' | 'micDefaultOn' | 'preferredTurnSeconds'>>) =>
+  updateProfile: (patch: Partial<Pick<Profile, 'displayName' | 'handSort' | 'cardBack' | 'sfxVolume' | 'micDefaultOn' | 'preferredTurnSeconds'>>) =>
     request<{ user: Profile }>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) }),
 
   matches: () => request<{ matches: MatchSummary[] }>('/api/me/matches'),

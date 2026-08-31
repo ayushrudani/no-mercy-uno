@@ -32,6 +32,8 @@ model User {
   avatarUrl   String?
 
   // Profile settings, mirrored into the client on login.
+  /// "dealt" or "color". Defaulted, so adding it needed no destructive push.
+  handSort             String  @default("dealt")
   cardBack             String  @default("classic")
   sfxVolume            Int     @default(70)
   micDefaultOn         Boolean @default(true)

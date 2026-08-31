@@ -15,6 +15,11 @@ import { useStore } from '../lib/store.js';
 
 const TURN_OPTIONS = [15, 30, 60, 0] as const;
 
+const HAND_ORDER_OPTIONS = [
+  { id: 'dealt', label: 'As dealt' },
+  { id: 'color', label: 'By colour' },
+] as const;
+
 export function ProfileScreen({
   profile,
   onClose,
@@ -99,6 +104,27 @@ export function ProfileScreen({
               maxLength={24}
               className="mt-1 w-full field px-3 py-2.5 text-sm"
             />
+
+            <label className="mt-4 block text-[11px] font-medium text-white/45">Hand order</label>
+            <div className="mt-1 flex gap-1.5">
+              {HAND_ORDER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => void save({ handSort: opt.id })}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold ${
+                    profile.handSort === opt.id
+                      ? 'bg-amber-400 text-slate-900'
+                      : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[10px] text-white/30">
+              Only you see this. There is a toggle at the table too.
+            </p>
 
             <label className="mt-4 block text-[11px] font-medium text-white/45">Card back</label>
             <div className="mt-2 flex gap-2">

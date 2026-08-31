@@ -26,6 +26,7 @@ import type {
 import { api, tokenStore, type Profile } from './api.js';
 import { loadMutePreference, saveMutePreference, sound } from './sound.js';
 import { VoiceEngine, type PeerState } from './voice.js';
+import { shouldClearResult } from './gameflow.js';
 
 type NmuSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -187,7 +188,28 @@ export const useStore = create<State & Actions>((set, get) => ({
 
     socket.on('room:state', (room) => set({ room }));
 
-    socket.on('game:state', (snapshot) => set({ snapshot }));
+    /**
+     * A snapshot is the whole truth about the game, so the win overlay is
+     * derived from it rather than remembered separately.
+     *
+     * This is what makes "play again" work for everyone. `game:over` sets
+     * `gameOver` on every client, but only the player who pressed the button
+     * used to clear it -- so the host started a fresh game and everybody else
+     * sat behind a win screen with the new game running underneath, looking
+     * like it had never started. Clearing it here means the server's state
+     * decides, and one code path covers host and guests alike.
+     *
+     * The event log is dropped on the same transition. It belongs to the game
+     * that just ended, and carrying it into the next one would leave the last
+     * game's finish sitting in the tail the effects read from.
+     */
+    socket.on('game:state', (snapshot) => {
+      set((s) =>
+        shouldClearResult({ hasResultOverlay: s.gameOver !== null }, snapshot.view)
+          ? { snapshot, gameOver: null, events: [] }
+          : { snapshot },
+      );
+    });
 
     socket.on('game:events', (incoming) =>
       set((s) => ({
@@ -268,7 +290,10 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   updateSettings: (settings) => emit('room:settings', settings),
   startGame: async () => {
-    set({ gameOver: null });
+    // Deliberately does not clear `gameOver` up front. The old snapshot is
+    // still on screen until the server sends a new one, and clearing early
+    // meant a start that failed left the host looking at a finished game with
+    // no result on it. The game:state handler clears it, for everyone at once.
     await emit('room:start');
   },
   kick: (userId) => emit('room:kick', { userId }),

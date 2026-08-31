@@ -100,6 +100,8 @@ async function main(): Promise<void> {
    * Host mode, for setting up a specific scenario by hand.
    *
    *   BOT_CREATE=1 BOT_HAND_SIZE=3 BOT_START_AT=2 tsx scripts/bot.ts X PW Host
+ *
+ * Add BOT_REMATCH=1 to have it deal another game once the first one ends.
    *
    * A small hand size is the practical way to reach two cards quickly when you
    * want to look at something that only happens near the end of a hand.
@@ -107,6 +109,16 @@ async function main(): Promise<void> {
   const creating = process.env['BOT_CREATE'] === '1';
   const startAt = Number(process.env['BOT_START_AT'] ?? 0);
   let started = false;
+
+  /**
+   * BOT_REMATCH=n: as host, start another game n times after one finishes.
+   *
+   * Exists to test the handover between games, which is only observable with a
+   * second player watching -- the win overlay used to be cleared locally by
+   * whoever pressed the button, so everyone else stayed stuck on it. Without
+   * this the scenario needs two humans.
+   */
+  let rematchesLeft = Number(process.env['BOT_REMATCH'] ?? 0);
 
   socket.on('connect', async () => {
     try {
@@ -144,6 +156,17 @@ async function main(): Promise<void> {
       emit('room:start')
         .then(() => console.log(`[${name}] started the game`))
         .catch((err: Error) => console.error(`[${name}] could not start:`, err.message));
+    }
+
+    if (creating && rematchesLeft > 0 && room.status === 'finished') {
+      rematchesLeft--;
+      // A pause, so a watching client has time to actually show the result
+      // before the next game replaces it.
+      setTimeout(() => {
+        emit('room:start')
+          .then(() => console.log(`[${name}] started a rematch`))
+          .catch((err: Error) => console.error(`[${name}] rematch failed:`, err.message));
+      }, 4000);
     }
   });
 

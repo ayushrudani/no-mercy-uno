@@ -88,11 +88,12 @@ different flags — the script prints which:
 | Refusal | Flag | Cost |
 |---|---|---|
 | A column or table is being dropped | `--accept-data-loss` | That column |
-| A new **required** column has no value for rows that already exist | `--force-reset` | **The whole database** |
+| A new **required** column has no value for rows that already exist | none — empty that one table, then re-run | Just that table |
 
 The second is not a permissions problem. There is no value Prisma could write
 into the existing rows, so `--accept-data-loss` cannot help and will simply
-fail again.
+fail again. Clearing the table that is blocking it is enough, and costs only
+that table — `--force-reset` exists for this but drops **everything**.
 
 The database is copied to `data/nmu.db.bak` before either path touches it.
 
@@ -108,41 +109,38 @@ slower, not less.
 
 ### One-off: upgrading from the Google sign-in build
 
-Accounts changed shape. `User` lost `googleSub` and `email` and gained
-`username`, `passwordHash` and `mustResetPassword`, and the new columns are
-required with no sensible default for an existing row — so the old accounts
-cannot be carried across. There were only ever a handful of them and they
-signed in with Google, which no longer exists here, so the fix is to drop them
-and sign up again:
+Accounts changed shape: `User` lost `googleSub` and `email` and gained
+`username`, `passwordHash` and `mustResetPassword`.
 
-```sh
-cd /var/www/no-mercy-uno
-bash deploy/update.sh --force-reset
-```
-
-**`--force-reset`, not `--accept-data-loss`.** They are not interchangeable and
-the wrong one just fails again:
-
-- `--accept-data-loss` permits *dropping* a column or table.
-- `--force-reset` drops the whole database and recreates it empty.
-
-This upgrade adds `username` and `passwordHash` as **required columns with no
-default**. Prisma has no value to put in the rows that already exist, so there
-is nothing for `--accept-data-loss` to allow — the refusal is not about
-permission, it is that the operation is impossible. A reset is the only way
-through:
+The two new columns are **required with no default**, and Prisma cannot invent
+values for the accounts already in the table, so a plain push stops:
 
 ```
 Added the required column `passwordHash` to the `User` table without a default
 value. There are 2 rows in this table, it is not possible to execute this step.
 ```
 
-Everything goes: the old accounts, and the match history pointing at them. That
-is the honest cost, and it is small — those accounts signed in with Google,
-which this build no longer has, so none of them could log in again anyway. The
-script copies the database to `data/nmu.db.bak` first, before it runs the push.
+`--accept-data-loss` does not help — that flag permits *dropping* things, and
+this is impossible rather than forbidden. Empty the table instead, which needs
+no destructive flag and leaves every other table alone:
 
-Sign up again afterwards with the code from `SIGNUP_CODE`.
+```sh
+cd /var/www/no-mercy-uno/apps/server
+echo 'DELETE FROM User;' | pnpm exec prisma db execute --stdin --schema prisma/schema.prisma
+cd .. && bash deploy/update.sh
+```
+
+The old accounts go. They signed in with Google, which this build no longer
+has, so not one of them could log in again anyway. `MatchPlayer` rows cascade
+away with them; the `Match` rows survive, pointing at nobody, so the record
+panel reads empty until new games are played.
+
+`bash deploy/update.sh --force-reset` also works but is a bigger hammer — it
+drops **every** table, not just `User`. Recent Prisma versions also refuse
+`--force-reset` without an interactive confirmation, so expect a prompt.
+
+Either way the database is copied to `data/nmu.db.bak` first. Sign up again
+afterwards with the code from `SIGNUP_CODE`.
 
 Match rows survive the push, but they point at user ids that no longer exist,
 so the record panel will read empty until new games are played. On a fresh box

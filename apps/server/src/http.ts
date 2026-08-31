@@ -335,6 +335,7 @@ type UserRow = {
   mustResetPassword: boolean;
   displayName: string;
   avatarUrl: string | null;
+  handSort: string;
   cardBack: string;
   sfxVolume: number;
   micDefaultOn: boolean;
@@ -348,6 +349,7 @@ function publicProfile(user: UserRow) {
     mustResetPassword: user.mustResetPassword,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
+    handSort: user.handSort,
     cardBack: user.cardBack,
     sfxVolume: user.sfxVolume,
     micDefaultOn: user.micDefaultOn,

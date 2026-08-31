@@ -5,10 +5,11 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Card, Color, OpponentView, RoomMember } from '@nmu/shared';
 import { CardBack, CardFace, COLOR_HEX, type CardBackId } from './Card.js';
 import { enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen } from '../lib/fullscreen.js';
+import { chunkRows, layoutHand, type HandSort } from '../lib/hand.js';
 import { speakingRing } from './Voice.js';
 
 // ---------------------------------------------------------------------------
@@ -593,6 +594,142 @@ export function FullscreenButton() {
       title={active ? 'Exit fullscreen' : 'Fullscreen (locks to landscape on a phone)'}
     >
       {active ? '🡼' : '⛶'}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The hand
+// ---------------------------------------------------------------------------
+
+/**
+ * Your cards, fanned to fit whatever space there is.
+ *
+ * This replaced a horizontal scroller. Scrolling was the wrong answer twice
+ * over: you cannot plan a turn against cards that are off-screen, and on a
+ * touch device dragging the rail competed with tapping a card, so picking the
+ * card you wanted from a big hand was genuinely fiddly.
+ *
+ * Now the cards overlap by exactly as much as they must, which is nothing at
+ * all for a normal hand and a tight fan for a punished one. The corner index in
+ * the top-left of every card is what makes the covered ones still readable, and
+ * it is why cards overlap leftwards rather than rightwards.
+ */
+export function HandRail({
+  cards,
+  playableIds,
+  isMyTurn,
+  onCardClick,
+}: {
+  cards: Card[];
+  playableIds: ReadonlySet<string>;
+  isMyTurn: boolean;
+  onCardClick: (card: Card) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [metrics, setMetrics] = useState({ width: 0, cardWidth: 60 });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const measure = () => {
+      // Read the card width from the CSS token rather than hardcoding it: the
+      // token changes at the height breakpoints, and a stale value here would
+      // compute an overlap for a card size that is no longer on screen.
+      const token = parseFloat(getComputedStyle(el).getPropertyValue('--card-w'));
+      setMetrics({ width: el.clientWidth, cardWidth: Number.isFinite(token) ? token : 60 });
+    };
+    measure();
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    // The breakpoints are on viewport HEIGHT, so the card token can change
+    // without this element's width changing at all -- which ResizeObserver
+    // would not report. Hence the window listener as well.
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  const layout = layoutHand({
+    count: cards.length,
+    width: metrics.width,
+    cardWidth: metrics.cardWidth,
+    gap: 6,
+    // Proportional to the card, so the sliver stays readable at every size.
+    minStep: Math.max(12, metrics.cardWidth * 0.3),
+    // Two at most. Vertical space is the scarce one on a phone in landscape,
+    // and a third row would push the fan off the bottom of the screen.
+    maxRows: 2,
+  });
+  const rows = chunkRows(cards, layout.rows);
+  const offset = layout.step - metrics.cardWidth;
+
+  return (
+    // The padding is on the outer element on purpose. `clientWidth` counts
+    // padding, so measuring a padded element would hand the layout 24px it does
+    // not have and the last card would hang over the edge. The measured element
+    // has no horizontal padding, so its width is exactly the room the cards get.
+    <div className="px-3 pb-2 pt-4">
+      <div ref={ref} className="flex flex-col items-stretch gap-1">
+        {rows.map((row, rowIndex) => (
+          <div key={rowIndex} className="flex justify-center">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {row.map((card, i) => {
+                const playable = isMyTurn && playableIds.has(card.id);
+                return (
+                  <motion.span
+                    key={card.id}
+                    layout
+                    className="relative block shrink-0"
+                    style={{
+                      marginLeft: i === 0 ? 0 : offset,
+                      // Later cards sit on top, so the fan reads left to right.
+                      // A playable card jumps above all of them -- half-covered
+                      // is fine to read, but not to aim at.
+                      zIndex: playable ? 100 + i : i,
+                    }}
+                  >
+                    <CardFace
+                      card={card}
+                      size="md"
+                      animate
+                      playable={playable}
+                      dimmed={!playableIds.has(card.id)}
+                      onClick={playable ? () => onCardClick(card) : undefined}
+                    />
+                  </motion.span>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Flips between dealt order and grouped by colour, and says which is on. */
+export function HandSortToggle({
+  sort,
+  onChange,
+}: {
+  sort: HandSort;
+  onChange: (next: HandSort) => void;
+}) {
+  const next: HandSort = sort === 'color' ? 'dealt' : 'color';
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(next)}
+      className="shrink-0 rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/50 ring-1 ring-white/10 transition hover:bg-white/12 hover:text-white/80"
+      aria-label={sort === 'color' ? 'sorted by colour, switch to dealt order' : 'dealt order, switch to sorting by colour'}
+      title={sort === 'color' ? 'Grouped by colour' : 'In the order they were dealt'}
+    >
+      {sort === 'color' ? '🎨 colour' : '⇄ dealt'}
     </button>
   );
 }
