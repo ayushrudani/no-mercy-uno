@@ -63,16 +63,46 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Headers for one request, with an explicit precedence order.
+ *
+ * The stored session token is attached to everything, not just the socket
+ * handshake. The httpOnly cookie alone is not enough: served over HTTPS the
+ * cookie is marked `Secure`, so a browser will not send it back over plain
+ * HTTP -- and this app is reachable both ways, on the domain over TLS and on
+ * the bare IP without it, because no CA will issue a certificate for an IP.
+ * Relying on the cookie meant a reload on the IP looked like being signed out.
+ *
+ * Anything the caller passes wins. That matters for the password-reset call,
+ * which must present its own short-lived token rather than the session it is
+ * about to replace. The server applies the same rule in the other direction:
+ * an Authorization header beats the cookie.
+ */
+export function requestHeaders({
+  hasBody,
+  token,
+  explicit,
+}: {
+  hasBody: boolean;
+  token: string | null;
+  explicit?: Record<string, string> | undefined;
+}): Record<string, string> {
+  return {
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...explicit,
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: 'include',
     ...init,
-    // Merged, not replaced: the reset call needs to add an Authorization
-    // header without losing the content type its body depends on.
-    headers: {
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init.headers,
-    },
+    headers: requestHeaders({
+      hasBody: init.body !== undefined && init.body !== null,
+      token: tokenStore.get(),
+      ...(init.headers ? { explicit: init.headers as Record<string, string> } : {}),
+    }),
   });
 
   if (!res.ok) {

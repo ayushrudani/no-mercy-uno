@@ -165,60 +165,71 @@ site is closed to whoever stumbles onto the IP even without HTTPS.
 
 ---
 
-## Optional: adding a domain
+## Adding a domain and HTTPS
 
-Everything above keeps working. A domain buys you HTTPS, which buys you voice
-chat — not possible on a bare IP.
-
-### HTTPS
-
-Point an A record at `13.232.9.123`, then:
+One script, safe to re-run:
 
 ```sh
-sudo sed -i 's/server_name 13.232.9.123;/server_name your.domain;/' /etc/nginx/sites-available/no-mercy-uno
-sudo nginx -t && sudo systemctl reload nginx
-
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your.domain
+cd /var/www/no-mercy-uno
+bash deploy/https.sh uno.bunkcode.online
 ```
 
-certbot rewrites the config for TLS and sets up renewal. Then set
-`CORS_ORIGINS=https://your.domain` in `apps/server/.env` and
-`pm2 restart no-mercy-uno`.
+It checks the domain actually resolves to this box before touching anything,
+installs nginx and certbot if missing, gets a Let's Encrypt certificate over
+the webroot challenge, writes the nginx config, sets renewal up, points
+`CORS_ORIGINS` at both addresses, flips `NODE_ENV` to production and restarts
+PM2.
 
-This alone makes voice possible — the microphone works on a secure origin.
+**Open 443 first**, or the certificate will issue and then nothing will connect:
+Lightsail console → your instance → Networking → IPv4 Firewall → add HTTPS
+(TCP 443). Port 80 must stay open too — that is how renewals are validated.
 
-### Accounts
+Afterwards:
 
-There is no OAuth and no email. Accounts are a username and a password, and
-creating one requires the signup code — which is what keeps the server to the
-people it was built for, since it sits on a public IP with no domain in front
-of it.
+| | |
+|---|---|
+| `https://uno.bunkcode.online` | full site. **Voice only works here.** |
+| `http://uno.bunkcode.online` | redirects to HTTPS |
+| `http://13.232.9.123` | still works, plain HTTP, no voice |
 
-The code lives in `apps/server/.env`:
+### Why the IP is not redirected to HTTPS
+
+No public CA will issue a certificate for a bare IP address, so a redirect
+there could only ever land on a certificate warning. Plain HTTP on the IP is
+the honest fallback — everything works except the microphone, which browsers
+refuse to open on an insecure origin.
+
+Signing in works on both. The client sends the session token as a bearer header
+as well as relying on the cookie, which matters because `NODE_ENV=production`
+marks that cookie `Secure` and a browser will not send a Secure cookie back
+over plain HTTP. Without the header, a reload on the IP would look like being
+signed out.
+
+### Renewal
+
+certbot's timer handles it. The script installs a deploy hook at
+`/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`, because certbot has no
+reason to know nginx is holding the old certificate in memory — without it the
+site keeps serving an expired one until something else reloads.
+
+Check it any time:
 
 ```sh
-SIGNUP_CODE=94997749
+sudo certbot renew --dry-run
 ```
 
-Change it and `pm2 restart no-mercy-uno` to cut off new signups. Existing
-accounts keep working; the code is only checked when creating one.
+### If certbot fails
 
-**Every new account must change its password before it can play.** Signing up
-returns a token that authorises exactly one thing — setting a new password —
-and the socket refuses it, so a fresh account cannot join a room until that is
-done. The password typed at signup is a one-time password by design, which
-means you can hand someone a temporary one over chat without it becoming their
-real one.
+In order of likelihood:
 
-Passwords are hashed with scrypt (node's built-in — no native module to rebuild
-on the box). Nothing is recoverable: there is no reset email, so a forgotten
-password means deleting the row and signing up again.
+1. **Port 80 closed** in the Lightsail firewall. The challenge is fetched over
+   plain HTTP.
+2. **DNS not pointing here.** The script warns before it tries, but a record
+   changed minutes ago may still be cached.
+3. **Rate limited** after several failed attempts — five per hour per domain.
+   Wait an hour.
 
-```sh
-cd ~/no-mercy-uno/apps/server
-pnpm exec prisma studio   # or: sqlite3 prisma/dev.db
-```
+The site stays up on the IP throughout. Fix and re-run.
 
 ### Voice across different networks
 

@@ -76,9 +76,9 @@ else
   cat > "$ENV_FILE" <<EOF
 # Written by deploy/setup.sh
 
-# development keeps the name-only sign-in enabled, so nobody has to set up
-# Google OAuth. Anyone who can reach the site can sign in as any name -- fine
-# for a private game, not fine if the URL gets out.
+# Plain HTTP on a bare IP, so the session cookie cannot be marked Secure --
+# a browser would refuse to send it back. deploy/https.sh flips this to
+# production once there is a certificate.
 NODE_ENV=development
 
 PORT=3000
