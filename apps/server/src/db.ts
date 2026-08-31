@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import type { ProfileUpdate } from '@nmu/shared';
 import type { MatchResult } from './rooms/Room.js';
-import type { GoogleIdentity } from './auth/tokens.js';
+import { hashPassword } from './auth/password.js';
 
 let client: PrismaClient | null = null;
 
@@ -15,35 +15,58 @@ export async function disconnectDb(): Promise<void> {
   client = null;
 }
 
-/**
- * Find or create the account behind a verified Google identity.
- *
- * Keyed on `googleSub`, never on email: Google's subject claim is stable for
- * the life of the account, whereas someone changing their Gmail address would
- * otherwise orphan their match history.
- */
-export async function upsertUserFromGoogle(identity: GoogleIdentity) {
-  const existing = await db().user.findUnique({ where: { googleSub: identity.sub } });
+/** Raised when a signup collides with a username that is already taken. */
+export class UsernameTakenError extends Error {
+  constructor(username: string) {
+    super(`the username "${username}" is already taken`);
+    this.name = 'UsernameTakenError';
+  }
+}
 
-  if (existing) {
-    return db().user.update({
-      where: { id: existing.id },
+export function findUserByUsername(username: string) {
+  return db().user.findUnique({ where: { username } });
+}
+
+/**
+ * Create an account.
+ *
+ * `mustResetPassword` comes from the schema default and is deliberately not
+ * overridden here: every account starts out needing its password changed
+ * before it can do anything.
+ *
+ * The unique constraint is what actually decides the race. Checking first and
+ * then creating leaves a window where two simultaneous signups both see the
+ * name as free, so the create is allowed to fail and P2002 is translated.
+ */
+export async function createUser(username: string, password: string, displayName: string) {
+  try {
+    return await db().user.create({
       data: {
-        email: identity.email,
-        avatarUrl: identity.picture,
-        lastSeenAt: new Date(),
+        username,
+        passwordHash: await hashPassword(password),
+        displayName: displayName.slice(0, 24),
       },
     });
+  } catch (err) {
+    if ((err as { code?: string }).code === 'P2002') throw new UsernameTakenError(username);
+    throw err;
   }
+}
 
-  return db().user.create({
+/** Replace a password and clear the forced-reset flag in one write. */
+export async function setPassword(userId: string, password: string) {
+  return db().user.update({
+    where: { id: userId },
     data: {
-      googleSub: identity.sub,
-      email: identity.email,
-      displayName: identity.name.slice(0, 24),
-      avatarUrl: identity.picture,
+      passwordHash: await hashPassword(password),
+      mustResetPassword: false,
+      lastSeenAt: new Date(),
     },
   });
+}
+
+export function touchUser(userId: string) {
+  return db().user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } });
 }
 
 export async function updateProfile(userId: string, patch: ProfileUpdate) {

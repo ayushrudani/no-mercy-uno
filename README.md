@@ -1,11 +1,11 @@
 # No Mercy UNO
 
 Multiplayer **UNO Show 'Em No Mercy** for a friend group spread across cities.
-Google sign-in, password-protected rooms, live voice chat, phone-first and
-landscape.
+Username/password accounts behind an invite code, password-protected rooms,
+live voice chat, phone-first with a fullscreen landscape mode.
 
 - [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — **get it running behind nginx in one script**
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — the full setup: Google sign-in, HTTPS, working voice
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — the full setup: accounts, HTTPS, working voice
 - [`docs/PLAN.md`](docs/PLAN.md) — architecture, rules, and what is done
 
 ---
@@ -21,10 +21,13 @@ pnpm dev            # server on :3000, client on :5173
 Open **http://localhost:5173** — not `127.0.0.1`, because Vite binds IPv6
 loopback only.
 
-Sign-in needs a Google OAuth client. Until you have one, the development
-sign-in on the landing page creates an account from a name with no password.
-It is registered **only** when `NODE_ENV=development`; in production the route
-does not exist.
+Create an account from the landing page. Signup asks for a **signup code**,
+which defaults to `94997749` and is set by `SIGNUP_CODE` in
+`apps/server/.env`. There is no OAuth and no email.
+
+Every new account has to change its password before it can play: signup hands
+back a token that authorises only the password change, and the socket refuses
+it. The password you type at signup is a one-time password by design.
 
 ## Commands
 

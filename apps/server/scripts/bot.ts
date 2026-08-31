@@ -3,8 +3,8 @@
  *
  *   pnpm exec tsx scripts/bot.ts <ROOM_CODE> <password> [name]
  *
- * Signs in through the development auth route, joins the room, and plays a
- * legal move whenever it is its turn. Deliberately simple: it plays the first
+ * Signs in through the real signup/login routes -- creating its account on
+ * first run -- joins the room, and plays a legal move whenever it is its turn. Deliberately simple: it plays the first
  * legal card and keeps wilds for last, which is enough to exercise every code
  * path in the client without pretending to be a good opponent.
  */
@@ -37,14 +37,55 @@ function bestColor(hand: Card[]): Color {
   return COLORS.reduce((a, b) => (counts[b] > counts[a] ? b : a), 'red' as Color);
 }
 
-async function main(): Promise<void> {
-  const res = await fetch(`${URL}/api/auth/dev`, {
+type AuthResponse = { token: string; mustResetPassword?: boolean; user: { id: string } };
+
+const post = async (path: string, body: unknown, token?: string) => {
+  const res = await fetch(`${URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`dev sign-in failed: ${res.status} ${await res.text()}`);
-  const { token, user } = (await res.json()) as { token: string; user: { id: string } };
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${text}`);
+  return JSON.parse(text) as AuthResponse;
+};
+
+/**
+ * Get the bot a session, creating its account the first time.
+ *
+ * It goes through the real signup, login and forced-reset routes rather than
+ * writing to the database, so running the bot is also a live check that the
+ * auth flow still works end to end.
+ *
+ * The password is derived from the name and is not a secret: this is a local
+ * development script, and the account it makes is a bot's.
+ */
+async function signIn(): Promise<AuthResponse> {
+  const username = `bot_${name.toLowerCase().replace(/[^a-z0-9_.]/g, '')}`.slice(0, 20);
+  const initial = `initial-${username}-pw`;
+  const password = `bot-${username}-pw`;
+  const code = process.env['SIGNUP_CODE'] ?? '94997749';
+
+  try {
+    return await post('/api/auth/login', { username, password });
+  } catch {
+    // No account yet: sign up, then immediately spend the reset token that
+    // signup hands back, which is the only way past the forced change.
+    const signup = await post('/api/auth/signup', {
+      username,
+      password: initial,
+      code,
+      displayName: name,
+    });
+    return post('/api/auth/reset-password', { newPassword: password }, signup.token);
+  }
+}
+
+async function main(): Promise<void> {
+  const { token, user } = await signIn();
 
   const socket: Socket = io(URL, { auth: { token }, transports: ['websocket'] });
 

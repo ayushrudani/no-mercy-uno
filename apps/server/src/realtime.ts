@@ -94,13 +94,17 @@ export function attachRealtime(httpServer: HttpServer, rooms: RoomManager): NmuS
     try {
       const raw = socket.handshake.auth as { token?: unknown };
       if (typeof raw.token !== 'string') throw new AuthError('missing session token');
-      const { userId } = await verifySession(raw.token);
+      const { userId, scope } = await verifySession(raw.token);
+      // A reset token proves identity but authorises only the password change.
+      // Sockets are the whole game, so nothing less than a session gets one.
+      if (scope !== 'session') throw new AuthError('set a new password before playing');
 
       const user = await db().user.findUnique({
         where: { id: userId },
-        select: { id: true, displayName: true, avatarUrl: true },
+        select: { id: true, displayName: true, avatarUrl: true, mustResetPassword: true },
       });
       if (!user) throw new AuthError('account no longer exists');
+      if (user.mustResetPassword) throw new AuthError('set a new password before playing');
 
       socket.data.userId = user.id;
       socket.data.displayName = user.displayName;

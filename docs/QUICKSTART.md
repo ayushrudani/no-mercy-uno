@@ -1,9 +1,9 @@
 # Quickstart — get it running behind nginx
 
-The short path. No Google OAuth, no TURN, no certificates. Good enough for a
-private game among friends on a URL you don't hand out.
+The short path. No TURN, no certificates. Good enough for a private game among
+friends on a URL you don't hand out.
 
-For the full production setup (Google sign-in, HTTPS, working voice) see
+For the full production setup (HTTPS and working voice) see
 [DEPLOY.md](DEPLOY.md).
 
 ---
@@ -91,12 +91,7 @@ Server-only changes need just the restart — there is nothing to compile.
 
 ## What this setup gives up
 
-Three things, deliberately:
-
-**Anyone who reaches the site can sign in as any name.** The script sets
-`NODE_ENV=development`, which keeps the name-only sign-in enabled so you don't
-have to set up Google OAuth. There is no password. Fine for a URL you share
-with five friends; not fine if it gets indexed or passed around.
+Two things, deliberately:
 
 **Voice chat will not work.** Browsers refuse microphone access on a plain
 `http://` origin — that is a browser rule, not something the app can opt out
@@ -105,9 +100,13 @@ of. Everything else (cards, chat, reactions) works fine.
 **Games are lost on restart.** Rooms live in memory. Deploy between games, not
 during one. Match history in SQLite survives.
 
-To fix the first two, run certbot for a certificate and follow
-[DEPLOY.md](DEPLOY.md) from step 3 — Google sign-in and voice both come back
-once the site is on HTTPS.
+To fix the first, run certbot for a certificate and follow
+[DEPLOY.md](DEPLOY.md) from step 3 — voice comes back once the site is on
+HTTPS.
+
+Accounts work either way: signing up needs the `SIGNUP_CODE` from
+`apps/server/.env` (default `94997749`), so the site is not open to whoever
+finds it. Change that value and restart to close signups.
 
 ---
 

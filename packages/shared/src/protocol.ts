@@ -30,6 +30,33 @@ export const colorSchema = z.enum(['red', 'yellow', 'green', 'blue']);
 
 export const displayNameSchema = z.string().trim().min(1).max(24);
 
+/**
+ * Usernames are the login identity, so they are normalised hard: lower case,
+ * letters/digits/underscore/dot only. Two accounts that differ by case would be
+ * indistinguishable when read aloud, which is how you end up joining a room as
+ * the wrong person.
+ */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'username must be at least 3 characters')
+  .max(20, 'username must be at most 20 characters')
+  .regex(/^[a-z0-9_.]+$/, 'username may only use letters, numbers, _ and .');
+
+/**
+ * Passwords are checked for length only.
+ *
+ * Composition rules ("one capital, one symbol") push people towards
+ * `Password1!` and are not worth the friction for a private game among
+ * friends. The upper bound exists because scrypt hashes whatever it is given
+ * and an unbounded password is a free way to burn server CPU.
+ */
+export const passwordSchema = z
+  .string()
+  .min(8, 'password must be at least 8 characters')
+  .max(128, 'password must be at most 128 characters');
+
 export const chatTextSchema = z.string().trim().min(1).max(500);
 
 /** Turn clock in seconds; 0 disables it. */
@@ -63,8 +90,6 @@ export const ruleOverridesSchema = z.object({
   rouletteColorChosenBy: z.enum(['target', 'player']).optional(),
   /** 0 turns knock-out off entirely. */
   eliminationAt: z.union([z.literal(0), z.number().int().min(10).max(40)]).optional(),
-  /** First to this many rounds wins. Only meaningful with knock-out off. */
-  roundsToWin: z.number().int().min(1).max(10).optional(),
   handSize: z.number().int().min(3).max(12).optional(),
 });
 export type RuleOverrides = z.infer<typeof ruleOverridesSchema>;
@@ -83,10 +108,10 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   turnSeconds: 30,
   // On by default: it is not an official No Mercy rule, but it is how this
   // group plays. The lobby exposes a toggle.
-  // Knock-out off by default: being benched at 25 cards means one bad hand
-  // costs a friend the rest of the evening. First to three rounds keeps
-  // everyone playing and still produces a clear winner.
-  rules: { sevenZero: true, unoCall: true, unoPenalty: 2, eliminationAt: 0, roundsToWin: 3 },
+  // Knock-out off by default. Emptying your hand wins you a place and the
+  // others play on for second and third; the 25-card cliff is an extra house
+  // rule rather than the way the game ends.
+  rules: { sevenZero: true, unoCall: true, unoPenalty: 2, eliminationAt: 0 },
 };
 
 // ---------------------------------------------------------------------------

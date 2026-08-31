@@ -396,7 +396,6 @@ export class Room {
     if (r.stackRequiresColorMatch !== undefined) out.stackRequiresColorMatch = r.stackRequiresColorMatch;
     if (r.rouletteColorChosenBy !== undefined) out.rouletteColorChosenBy = r.rouletteColorChosenBy;
     if (r.eliminationAt !== undefined) out.eliminationAt = r.eliminationAt;
-    if (r.roundsToWin !== undefined) out.roundsToWin = r.roundsToWin;
     if (r.handSize !== undefined) out.handSize = r.handSize;
     return out;
   }
@@ -464,21 +463,18 @@ export class Room {
     const winnerId = game.winnerId;
 
     /**
-     * Standings, winner first.
+     * Standings come straight from the finishing order: first player to empty
+     * their hand is 1st, and so on down to whoever was left holding cards.
      *
-     * With knock-out on, the running order falls out of who was removed and
-     * when: last out is runner-up. With it off nobody is ever removed, so rank
-     * by rounds won instead -- otherwise the board would show only the winner.
+     * Anyone knocked out at 25 never went out, so they have no place and are
+     * appended below everyone who did -- most recently knocked out first.
      */
-    const knockedOut = [...this.eliminationOrder].reverse();
-    const byRounds = [...game.players]
-      .filter((p) => p.id !== winnerId)
-      .sort((a, b) => b.roundsWon - a.roundsWon)
+    const placed = [...game.players]
+      .filter((p) => p.place !== null)
+      .sort((a, b) => a.place! - b.place!)
       .map((p) => p.id);
-
-    const standings = [winnerId, ...(knockedOut.length > 0 ? knockedOut : byRounds)].filter(
-      (id): id is string => typeof id === 'string',
-    );
+    const knockedOut = [...this.eliminationOrder].reverse();
+    const standings = [...placed, ...knockedOut.filter((id) => !placed.includes(id))];
 
     if (winnerId) {
       this.transport.toRoom(this.code, 'game:over', { winnerId, standings });
@@ -493,8 +489,10 @@ export class Room {
       players: game.players.map((p, seat) => ({
         userId: p.id,
         seat,
-        roundsWon: p.roundsWon,
-        finalPlace: standings.indexOf(p.id) >= 0 ? standings.indexOf(p.id) + 1 : standings.length + 1,
+        // Kept for history: 1 means they went out rather than being left
+        // holding cards or knocked out.
+        roundsWon: p.place === 1 ? 1 : 0,
+        finalPlace: p.place ?? (standings.indexOf(p.id) >= 0 ? standings.indexOf(p.id) + 1 : standings.length + 1),
       })),
     });
 

@@ -11,7 +11,7 @@ import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const BASE_ENV = {
-  GOOGLE_CLIENT_ID: 'test.apps.googleusercontent.com',
+  SIGNUP_CODE: '94997749',
   SESSION_SECRET: 'x'.repeat(40),
 };
 

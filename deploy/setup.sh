@@ -92,8 +92,9 @@ SESSION_SECRET=$SECRET
 # The address the browser uses. Detected from this instance.
 CORS_ORIGINS=$SITE_URL
 
-# Leave empty to hide the Google button entirely.
-GOOGLE_CLIENT_ID=
+# Anyone with this code can create an account. Change it and restart to stop
+# new signups; accounts that already exist are not affected.
+SIGNUP_CODE=94997749
 
 # Voice needs HTTPS (browsers refuse the microphone otherwise) and a TURN
 # relay to work across different networks. Neither is set up here.

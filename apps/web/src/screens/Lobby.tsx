@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { DEFAULT_ROOM_SETTINGS, MAX_PLAYERS, MIN_PLAYERS, type RoomSettings } from '@nmu/shared';
 import { useStore } from '../lib/store.js';
 import type { Profile } from '../lib/api.js';
+import { FullscreenButton } from '../components/table-parts.js';
 
 const TURN_OPTIONS = [15, 30, 60, 0] as const;
 
@@ -60,6 +61,7 @@ export function Lobby({ profile, onOpenProfile }: { profile: Profile; onOpenProf
             </span>
             <span className="text-white/70">{profile.displayName}</span>
           </button>
+          <FullscreenButton />
           <button type="button" onClick={() => void signOut()} className="text-white/35 underline decoration-white/20 transition hover:text-white/60">
             sign out
           </button>
@@ -117,40 +119,26 @@ export function Lobby({ profile, onOpenProfile }: { profile: Profile; onOpenProf
             ))}
           </div>
 
-          <label className="mt-4 block text-[11px] font-medium text-white/45">How the game ends</label>
-          <div className="mt-1 flex gap-1.5">
-            <button
-              type="button"
-              onClick={() =>
-                setSettings({ ...settings, rules: { ...settings.rules, eliminationAt: 0, roundsToWin: 3 } })
+          <label className="mt-4 flex cursor-pointer items-start justify-between gap-3 rounded-xl bg-white/4 px-3 py-2.5 ring-1 ring-white/8">
+            <span>
+              <span className="block text-xs font-semibold">Knock out at 25 cards</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-white/40">
+                Official No Mercy. Hit 25 cards and you are out for good, ranked below
+                everyone who emptied their hand. Off by default.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={(settings.rules.eliminationAt ?? 0) > 0}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  rules: { ...settings.rules, eliminationAt: e.target.checked ? 25 : 0 },
+                })
               }
-              className={`flex-1 rounded-lg px-2 py-2 text-xs font-semibold ${
-                (settings.rules.eliminationAt ?? 0) === 0
-                  ? 'bg-amber-300 text-slate-900 shadow-lg shadow-amber-300/20'
-                  : 'bg-white/6 text-white/60 ring-1 ring-white/10 hover:bg-white/10'
-              }`}
-            >
-              First to {settings.rules.roundsToWin ?? 3}
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setSettings({ ...settings, rules: { ...settings.rules, eliminationAt: 25, roundsToWin: 0 } })
-              }
-              className={`flex-1 rounded-lg px-2 py-2 text-xs font-semibold ${
-                (settings.rules.eliminationAt ?? 0) > 0
-                  ? 'bg-amber-300 text-slate-900 shadow-lg shadow-amber-300/20'
-                  : 'bg-white/6 text-white/60 ring-1 ring-white/10 hover:bg-white/10'
-              }`}
-            >
-              Knock out at 25
-            </button>
-          </div>
-          <p className="mt-1 text-[10px] leading-snug text-white/40">
-            {(settings.rules.eliminationAt ?? 0) === 0
-              ? 'Nobody is ever knocked out. First to win 3 rounds takes the game.'
-              : 'Official No Mercy: reach 25 cards and you are out for good. Last player standing wins.'}
-          </p>
+              className="mt-0.5 h-4 w-4 shrink-0 accent-amber-300"
+            />
+          </label>
 
           <label className="mt-4 flex cursor-pointer items-start justify-between gap-3 rounded-xl bg-white/4 px-3 py-2.5 ring-1 ring-white/8">
             <span>

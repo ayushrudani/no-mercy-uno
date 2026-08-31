@@ -19,6 +19,7 @@ import { MomentBanner } from '../components/Moment.js';
 import { speakingRing, VoiceControls } from '../components/Voice.js';
 import {
   ColorPicker,
+  FullscreenButton,
   NetworkPill,
   Piles,
   Seat,
@@ -155,6 +156,9 @@ export function Table({
 
   const nearElimination = (me?.hand.length ?? 0) >= 20;
 
+  // Your finishing place, once you have gone out.
+  const myPlace = me?.place ?? null;
+
   // The seat token changes with viewport height, so the SVG ring around my own
   // avatar has to read the resolved value rather than assume a fixed size.
   const [mySeatRing, setMySeatRing] = useState(38);
@@ -180,7 +184,9 @@ export function Table({
             <span className="shrink-0 rounded-full bg-white/8 px-2 py-1 font-bold tracking-[0.15em] text-white/70 ring-1 ring-white/10">
               {room.code}
             </span>
-            <span className="hidden text-white/35 sm:inline">round {view.round}</span>
+            <span className="hidden whitespace-nowrap text-white/35 sm:inline">
+              {view.players.filter((p) => p.place === null && !p.eliminated).length} still playing
+            </span>
             <motion.span
               key={view.direction}
               initial={{ rotate: -180, opacity: 0 }}
@@ -223,6 +229,7 @@ export function Table({
             >
               {muted ? '🔇' : '🔊'}
             </button>
+            <FullscreenButton />
             <button
               type="button"
               onClick={() => run(leaveRoom)}
@@ -296,7 +303,7 @@ export function Table({
 
               <span className="text-[11px] font-semibold text-white/85">
                 {me?.eliminated
-                  ? 'Eliminated — spectating'
+                  ? 'Knocked out — spectating'
                   : isMyTurn
                     ? mustDecideDrawn
                       ? 'Play it or pass'
@@ -312,6 +319,11 @@ export function Table({
                 >
                   {me.hand.length}/25
                 </motion.span>
+              )}
+              {myPlace !== null && (
+                <span className="rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 ring-1 ring-amber-300/30">
+                  finished #{myPlace}
+                </span>
               )}
               {me?.calledUno && (
                 <span className="rounded-full bg-uno-red px-2 py-0.5 text-[9px] font-black italic ring-1 ring-white/40">

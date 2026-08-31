@@ -7,11 +7,10 @@ import type { GameConfig } from './types.js';
  */
 export const DEFAULT_CONFIG: GameConfig = {
   handSize: 7,
-  // The official rule. Rooms can set this to 0 and use roundsToWin instead,
-  // which is kinder when one bad hand would otherwise bench a friend for the
-  // rest of the evening.
-  eliminationAt: 25,
-  roundsToWin: 0,
+  // Off by default. Going out is how you win; knock-out is an extra house
+  // rule for groups who want the 25-card cliff as well.
+  eliminationAt: 0,
+  dealOnce: true,
   stackRequiresColorMatch: false,
   rouletteColorChosenBy: 'target',
   openingMustBeNumber: true,

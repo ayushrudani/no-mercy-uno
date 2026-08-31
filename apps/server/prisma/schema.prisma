@@ -15,10 +15,18 @@ datasource db {
 }
 
 model User {
-  id        String @id @default(cuid())
-  // Google's stable subject claim. Email can change; this cannot.
-  googleSub String @unique
-  email     String @unique
+  id String @id @default(cuid())
+
+  /// Login identity. Stored already normalised to lower case by the API.
+  username     String @unique
+  /// scrypt, in the self-describing format from auth/password.ts. Never a
+  /// plaintext password, and never returned by any route.
+  passwordHash String
+
+  /// Set on signup, cleared by the first password change. While it is true the
+  /// account can only be issued a reset-scoped token, so it cannot join a room
+  /// or open a socket until the signup password has been replaced.
+  mustResetPassword Boolean @default(true)
 
   displayName String
   avatarUrl   String?

@@ -13,7 +13,8 @@ export interface OpponentView {
   id: string;
   cardCount: number;
   eliminated: boolean;
-  roundsWon: number;
+  /** Finishing position once they have gone out; null while still playing. */
+  place: number | null;
   /** Public on purpose: the table needs to see who remembered to call. */
   calledUno: boolean;
 }
@@ -26,6 +27,8 @@ export interface PlayerGameView {
     /** Ids from `hand` that are legal right now -- the UI lights these up. */
     playableCardIds: string[];
     eliminated: boolean;
+    /** Finishing position once they have gone out; null while still playing. */
+    place: number | null;
     calledUno: boolean;
     /** Show the UNO button. */
     canCallUno: boolean;
@@ -56,6 +59,7 @@ export function redactFor(state: GameState, viewerId: string | null): PlayerGame
           hand: viewer.hand,
           playableCardIds: legalMovesFor(state, viewer.id).map((c) => c.id),
           eliminated: viewer.eliminated,
+          place: viewer.place,
           calledUno: viewer.calledUno,
           /** The button is live only while holding exactly two cards. */
           canCallUno:
@@ -66,7 +70,7 @@ export function redactFor(state: GameState, viewerId: string | null): PlayerGame
       id: p.id,
       cardCount: p.hand.length,
       eliminated: p.eliminated,
-      roundsWon: p.roundsWon,
+      place: p.place,
       calledUno: p.calledUno,
     })),
     seats: state.players.map((p) => p.id),

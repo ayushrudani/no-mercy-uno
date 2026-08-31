@@ -8,35 +8,108 @@
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { displayNameSchema, profileUpdateSchema, roomCodeSchema } from '@nmu/shared';
-import { AuthError, SESSION_COOKIE, signSession, verifyGoogleIdToken, verifySession } from './auth/tokens.js';
-import { recentMatchesFor, updateProfile, upsertUserFromGoogle, db } from './db.js';
+import {
+  displayNameSchema,
+  passwordSchema,
+  profileUpdateSchema,
+  roomCodeSchema,
+  usernameSchema,
+} from '@nmu/shared';
+import { hashPassword, verifyPassword } from './auth/password.js';
+import { AuthError, SESSION_COOKIE, signSession, verifySession, type TokenScope } from './auth/tokens.js';
+import {
+  createUser,
+  findUserByUsername,
+  recentMatchesFor,
+  setPassword,
+  touchUser,
+  updateProfile,
+  UsernameTakenError,
+  db,
+} from './db.js';
 import { env } from './env.js';
 import { buildIceServers, hasTurn } from './voice/ice.js';
 import type { RoomManager } from './rooms/RoomManager.js';
 
-const googleLoginSchema = z.object({ idToken: z.string().min(16).max(8192) });
+const signupSchema = z.object({
+  username: usernameSchema,
+  password: passwordSchema,
+  code: z.string().trim().min(1).max(64),
+  displayName: displayNameSchema.optional(),
+});
+
+const loginSchema = z.object({
+  username: usernameSchema,
+  // Not `passwordSchema`: the rules may tighten later, and an old password that
+  // no longer meets them should still get you in so you can change it.
+  password: z.string().min(1).max(128),
+});
+
+const resetSchema = z.object({ newPassword: passwordSchema });
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: passwordSchema,
+});
+
+/**
+ * Wrong username and wrong password are reported identically.
+ *
+ * Otherwise the login form doubles as a "does this person play here" oracle for
+ * anyone who finds the IP.
+ */
+const BAD_CREDENTIALS = 'incorrect username or password';
+
+/**
+ * Verifying against a throwaway hash when the username does not exist keeps an
+ * unknown-user login as slow as a known-user one, so response time does not
+ * leak the member list either. Built once at boot, not per request.
+ */
+const dummyHash = hashPassword('no-such-account-placeholder');
 
 export interface HttpDeps {
   rooms: RoomManager;
 }
 
-/** Session token from the cookie, falling back to an Authorization header. */
+/**
+ * Session token from the Authorization header, falling back to the cookie.
+ *
+ * The header wins deliberately. A caller that sets `Bearer ...` has chosen a
+ * specific credential, and the browser attaches the cookie to every request
+ * whether it is wanted or not. With the old cookie-first order, finishing a
+ * forced password change failed for anyone who still had a session cookie
+ * lying around: the reset token in the header was ignored in favour of a
+ * session cookie, and the route rejected it as the wrong scope.
+ */
 function tokenFrom(req: FastifyRequest): string | null {
-  const cookieToken = req.cookies[SESSION_COOKIE];
-  if (cookieToken) return cookieToken;
   const header = req.headers.authorization;
   if (header?.startsWith('Bearer ')) return header.slice(7);
-  return null;
+  return req.cookies[SESSION_COOKIE] ?? null;
 }
 
-async function requireUserId(req: FastifyRequest): Promise<string> {
+/**
+ * The user behind the request, or an AuthError.
+ *
+ * Defaults to demanding a full `session` token, so a reset-scoped token is
+ * rejected everywhere by default and only the password routes opt into
+ * accepting one. Getting this backwards -- allowing by default, denying on the
+ * routes you remember -- is how a forced password change ends up being
+ * skippable.
+ */
+async function requireUserId(req: FastifyRequest, scope: TokenScope = 'session'): Promise<string> {
   const token = tokenFrom(req);
   if (!token) throw new AuthError('not signed in');
-  const { userId } = await verifySession(token);
-  return userId;
+  const session = await verifySession(token);
+  if (session.scope !== scope) {
+    throw new AuthError(
+      scope === 'session'
+        ? 'set a new password before continuing'
+        : 'this action needs a password-reset token',
+    );
+  }
+  return session.userId;
 }
 
 export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> {
@@ -53,6 +126,9 @@ export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> 
     if (err instanceof AuthError) {
       return reply.code(401).send({ code: 'unauthorized', message: err.message });
     }
+    if (err instanceof UsernameTakenError) {
+      return reply.code(409).send({ code: 'username_taken', message: err.message });
+    }
     if (err instanceof z.ZodError) {
       return reply.code(400).send({ code: 'bad_request', message: err.issues[0]?.message ?? 'bad request' });
     }
@@ -61,8 +137,9 @@ export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> 
   });
 
   app.get('/api/config', async () => ({
-    googleClientId: config.GOOGLE_CLIENT_ID,
-    devAuth: config.NODE_ENV === 'development',
+    // Deliberately says only that signup exists, never what the code is.
+    signupEnabled: true,
+    minPasswordLength: 8,
   }));
 
   app.get('/api/health', async () => ({
@@ -72,22 +149,14 @@ export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> 
   }));
 
   /**
-   * Exchange a Google ID token for our own session.
+   * Issue a full session: cookie for the REST calls, body copy for the socket.
    *
-   * The browser gets the ID token from Google Identity Services; we verify it
-   * against Google's JWKS, then issue a session of our own. The cookie is
-   * httpOnly so page scripts cannot read it, and the token is also returned in
-   * the body because the socket handshake needs to send it explicitly.
+   * The cookie is httpOnly so page scripts cannot read it; the token is also
+   * returned in the body because the socket handshake has to present it
+   * explicitly and therefore cannot rely on the cookie.
    */
-  app.post('/api/auth/google', async (req, reply) => {
-    if (!config.GOOGLE_CLIENT_ID) {
-      throw new AuthError('Google sign-in is not configured on this server');
-    }
-    const { idToken } = googleLoginSchema.parse(req.body);
-    const identity = await verifyGoogleIdToken(idToken);
-    const user = await upsertUserFromGoogle(identity);
-    const token = await signSession(user.id);
-
+  const grantSession = async (reply: FastifyReply, userId: string) => {
+    const token = await signSession(userId, 'session');
     reply.setCookie(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: 'lax',
@@ -95,40 +164,98 @@ export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> 
       path: '/',
       maxAge: config.SESSION_TTL_DAYS * 24 * 60 * 60,
     });
+    return token;
+  };
 
-    return { token, user: publicProfile(user) };
+  /**
+   * Create an account.
+   *
+   * The invite code is checked here and nowhere else -- the client never learns
+   * it, and a wrong code fails before the username is even looked at, so this
+   * route cannot be used to probe which names are taken.
+   *
+   * What comes back is a *reset*-scoped token, not a session. The password
+   * chosen here is a one-time password by design: it gets you exactly as far as
+   * the "choose a new password" screen and no further.
+   */
+  app.post('/api/auth/signup', async (req) => {
+    const { username, password, code, displayName } = signupSchema.parse(req.body);
+
+    if (code.trim() !== config.SIGNUP_CODE) {
+      throw new AuthError('that signup code is not valid');
+    }
+
+    const user = await createUser(username, password, displayName ?? username);
+    const token = await signSession(user.id, 'reset');
+    return { token, mustResetPassword: true, user: publicProfile(user) };
   });
 
   /**
-   * Development-only sign-in, so the app can be run and played before a Google
-   * OAuth client exists.
+   * Sign in.
    *
-   * Registered ONLY when NODE_ENV is development. In production this route does
-   * not exist at all -- it is not a flag that can be flipped by a stray env
-   * var, the handler is never attached.
+   * An account that has never changed its signup password gets a reset token
+   * and no cookie, so it lands on the password screen instead of the lobby.
    */
-  if (config.NODE_ENV === 'development') {
-    app.log.warn('DEV AUTH ENABLED: POST /api/auth/dev creates accounts without a password');
+  app.post('/api/auth/login', async (req, reply) => {
+    const { username, password } = loginSchema.parse(req.body);
 
-    app.post('/api/auth/dev', async (req, reply) => {
-      const { name } = z.object({ name: displayNameSchema }).parse(req.body);
-      const sub = `dev:${name.toLowerCase()}`;
-      const user = await db().user.upsert({
-        where: { googleSub: sub },
-        update: { lastSeenAt: new Date() },
-        create: { googleSub: sub, email: `${sub}@dev.local`, displayName: name },
-      });
-      const token = await signSession(user.id);
-      reply.setCookie(SESSION_COOKIE, token, {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: false,
-        path: '/',
-        maxAge: config.SESSION_TTL_DAYS * 24 * 60 * 60,
-      });
-      return { token, user: publicProfile(user) };
-    });
-  }
+    const user = await findUserByUsername(username);
+    const ok = await verifyPassword(password, user?.passwordHash ?? (await dummyHash));
+    if (!user || !ok) throw new AuthError(BAD_CREDENTIALS);
+
+    if (user.mustResetPassword) {
+      const token = await signSession(user.id, 'reset');
+      return { token, mustResetPassword: true, user: publicProfile(user) };
+    }
+
+    const token = await grantSession(reply, user.id);
+    await touchUser(user.id);
+    return { token, mustResetPassword: false, user: publicProfile(user) };
+  });
+
+  /**
+   * Complete the forced first password change.
+   *
+   * The reset token is the authorisation, so the old password is not asked for
+   * again -- it was typed moments ago to obtain the token, and the token
+   * expires in minutes. Ordinary later changes go through
+   * /api/auth/change-password, which does require it.
+   */
+  app.post('/api/auth/reset-password', async (req, reply) => {
+    const userId = await requireUserId(req, 'reset');
+    const { newPassword } = resetSchema.parse(req.body);
+
+    const current = await db().user.findUnique({ where: { id: userId } });
+    if (!current) throw new AuthError('account no longer exists');
+    if (await verifyPassword(newPassword, current.passwordHash)) {
+      throw new AuthError('choose a password different from the one you were given');
+    }
+
+    const user = await setPassword(userId, newPassword);
+    const token = await grantSession(reply, user.id);
+    return { token, mustResetPassword: false, user: publicProfile(user) };
+  });
+
+  /** Change your password from the profile screen. Needs the old one. */
+  app.post('/api/auth/change-password', async (req, reply) => {
+    const userId = await requireUserId(req);
+    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+
+    const current = await db().user.findUnique({ where: { id: userId } });
+    if (!current) throw new AuthError('account no longer exists');
+    if (!(await verifyPassword(currentPassword, current.passwordHash))) {
+      throw new AuthError('your current password is not correct');
+    }
+    if (currentPassword === newPassword) {
+      throw new AuthError('the new password must be different from the old one');
+    }
+
+    const user = await setPassword(userId, newPassword);
+    // A fresh token, so the change is a good moment to extend the session
+    // rather than have it expire on the old schedule.
+    const token = await grantSession(reply, user.id);
+    return { token, user: publicProfile(user) };
+  });
 
   app.post('/api/auth/logout', async (_req, reply) => {
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
@@ -204,7 +331,8 @@ export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> 
 
 type UserRow = {
   id: string;
-  email: string;
+  username: string;
+  mustResetPassword: boolean;
   displayName: string;
   avatarUrl: string | null;
   cardBack: string;
@@ -216,7 +344,8 @@ type UserRow = {
 function publicProfile(user: UserRow) {
   return {
     id: user.id,
-    email: user.email,
+    username: user.username,
+    mustResetPassword: user.mustResetPassword,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     cardBack: user.cardBack,

@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import type { RoomView } from '@nmu/shared';
 import { speakingRing, VoiceControls } from '../components/Voice.js';
+import { FullscreenButton } from '../components/table-parts.js';
 import { selectIsHost, useStore } from '../lib/store.js';
 import type { Profile } from '../lib/api.js';
 
@@ -63,13 +64,18 @@ export function WaitingRoom({ room, profile }: { room: RoomView; profile: Profil
               · up to {room.settings.maxPlayers} players
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => run(leaveRoom)}
-            className="text-xs text-white/35 underline decoration-white/20 transition hover:text-white/60"
-          >
-            leave
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Offered here as well as at the table: better to turn the phone
+                sideways while waiting than in the middle of your first turn. */}
+            <FullscreenButton />
+            <button
+              type="button"
+              onClick={() => run(leaveRoom)}
+              className="text-xs text-white/35 underline decoration-white/20 transition hover:text-white/60"
+            >
+              leave
+            </button>
+          </div>
         </div>
 
         <button

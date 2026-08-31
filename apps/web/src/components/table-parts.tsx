@@ -1,12 +1,14 @@
 /**
  * The small pieces the table is assembled from: opponent seats, the piles,
- * the turn ring, the colour picker, the network pill and toasts.
+ * the turn ring, the colour picker, the network pill, the fullscreen button
+ * and toasts.
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import type { Card, Color, OpponentView, RoomMember } from '@nmu/shared';
 import { CardBack, CardFace, COLOR_HEX, type CardBackId } from './Card.js';
+import { enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen } from '../lib/fullscreen.js';
 import { speakingRing } from './Voice.js';
 
 // ---------------------------------------------------------------------------
@@ -140,13 +142,22 @@ export function Seat({
         )}
       </div>
 
-      <span className="max-w-16 truncate text-[10px] font-medium text-white/55">
-        {offline ? '⚠ ' : ''}
-        {name}
+      <span className="flex max-w-20 items-center gap-1 text-[10px] font-medium text-white/55">
+        <span className="truncate">
+          {offline ? '⚠ ' : ''}
+          {name}
+        </span>
+        {/* Their finishing place, once they have gone out. Without it, a
+            player who empties their hand just silently stops taking turns. */}
+        {player.place !== null && (
+          <span className="shrink-0 rounded-full bg-amber-300/20 px-1 font-bold text-amber-300 ring-1 ring-amber-300/30">
+            #{player.place}
+          </span>
+        )}
       </span>
 
       {/* A fan of backs, capped so a 20-card hand does not overflow the seat. */}
-      {!player.eliminated && (
+      {!player.eliminated && player.place === null && (
         <div className="flex items-start">
           {Array.from({ length: Math.min(player.cardCount, 6) }).map((_, i) => (
             <div
@@ -305,6 +316,14 @@ export function Piles({
 
 const COLORS: Color[] = ['red', 'yellow', 'green', 'blue'];
 
+/**
+ * Colour choice, shown beside the piles rather than as a full-screen modal.
+ *
+ * A modal blanked the whole table for what is a one-tap decision, hiding your
+ * own hand at exactly the moment you are deciding what the colour should be.
+ * Sitting it next to the deck keeps the table readable and puts the choice
+ * where the eye already is.
+ */
 export function ColorPicker({
   title,
   subtitle,
@@ -317,36 +336,54 @@ export function ColorPicker({
   onCancel?: (() => void) | undefined;
 }) {
   return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-black/70 backdrop-blur-sm">
-      <div className="panel panel-raised animate-rise rounded-2xl p-5 text-center">
-        <h2 className="text-sm font-bold">{title}</h2>
-        {subtitle && <p className="mt-1 text-xs text-white/45">{subtitle}</p>}
-        <div className="mt-4 grid grid-cols-2 gap-2.5">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => onPick(c)}
-              aria-label={c}
-              className="h-16 w-16 rounded-2xl shadow-lg ring-2 ring-white/25 transition hover:scale-105 hover:ring-white/60 active:scale-95"
-              style={{ background: COLOR_HEX[c] }}
-            />
-          ))}
-        </div>
-        {onCancel && (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85, x: -12 }}
+      animate={{ opacity: 1, scale: 1, x: 0 }}
+      exit={{ opacity: 0, scale: 0.85 }}
+      transition={{ type: 'spring', stiffness: 460, damping: 26 }}
+      className="panel panel-raised shrink-0 rounded-2xl p-2.5 text-center ring-2 ring-amber-300/50"
+    >
+      <div className="text-[10px] font-bold leading-tight">{title}</div>
+      {subtitle && (
+        <div className="mt-0.5 max-w-[8.5rem] text-[9px] leading-snug text-white/45">{subtitle}</div>
+      )}
+
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        {COLORS.map((c) => (
           <button
+            key={c}
             type="button"
-            onClick={onCancel}
-            className="mt-4 text-xs text-slate-400 underline underline-offset-2"
-          >
-            cancel
-          </button>
-        )}
+            onClick={() => onPick(c)}
+            aria-label={c}
+            style={{
+              background: COLOR_HEX[c],
+              width: 'calc(var(--pile-w) * 0.46)',
+              height: 'calc(var(--pile-w) * 0.46)',
+            }}
+            className="rounded-xl shadow-lg ring-2 ring-white/25 transition hover:scale-110 hover:ring-white/70 active:scale-95"
+          />
+        ))}
       </div>
-    </div>
+
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mt-1.5 text-[9px] text-white/40 underline underline-offset-2"
+        >
+          cancel
+        </button>
+      )}
+    </motion.div>
   );
 }
 
+/**
+ * Who to swap hands with after playing a 7.
+ *
+ * Card counts are shown because that is the entire decision -- you are picking
+ * a hand, and its size is the only thing you know about it.
+ */
 /**
  * The UNO button.
  *
@@ -373,12 +410,7 @@ export function UnoButton({ onCall }: { onCall: () => void }) {
   );
 }
 
-/**
- * Who to swap hands with after playing a 7.
- *
- * Card counts are shown because that is the entire decision -- you are picking
- * a hand, and its size is the only thing you know about it.
- */
+/** Who to swap hands with after playing a 7, shown beside the piles. */
 export function SwapPicker({
   candidates,
   nameOf,
@@ -391,25 +423,32 @@ export function SwapPicker({
   onPick: (id: string) => void;
 }) {
   return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-black/75 backdrop-blur-sm">
-      <div className="panel panel-raised animate-rise rounded-2xl p-5 text-center">
-        <h2 className="text-sm font-bold">Take someone's hand</h2>
-        <p className="mt-1 text-xs text-white/45">You played a 7. Swap with anyone.</p>
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {candidates.map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onPick(id)}
-              className="min-w-20 rounded-xl bg-white/5 px-3 py-2.5 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-amber-300 active:scale-95"
-            >
-              <div className="text-2xl font-black leading-none">{countOf(id)}</div>
-              <div className="mt-1 max-w-20 truncate text-[10px] text-white/55">{nameOf(id)}</div>
-            </button>
-          ))}
-        </div>
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85, x: -12 }}
+      animate={{ opacity: 1, scale: 1, x: 0 }}
+      exit={{ opacity: 0, scale: 0.85 }}
+      transition={{ type: 'spring', stiffness: 460, damping: 26 }}
+      className="panel panel-raised shrink-0 rounded-2xl p-2.5 text-center ring-2 ring-amber-300/50"
+    >
+      <div className="text-[10px] font-bold leading-tight">Take a hand</div>
+      <div className="mt-0.5 max-w-[9rem] text-[9px] leading-snug text-white/45">
+        You played a 7. Card counts shown.
       </div>
-    </div>
+
+      <div className="mt-2 flex max-w-[10rem] flex-wrap justify-center gap-1.5">
+        {candidates.map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onPick(id)}
+            className="min-w-12 rounded-xl bg-white/6 px-2 py-1.5 ring-1 ring-white/12 transition hover:bg-white/12 hover:ring-amber-300 active:scale-95"
+          >
+            <div className="text-base font-black leading-none">{countOf(id)}</div>
+            <div className="mt-0.5 max-w-14 truncate text-[9px] text-white/55">{nameOf(id)}</div>
+          </button>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 
@@ -503,3 +542,57 @@ export function Toasts({
  * tokens and the seat row wraps, portrait works -- and blocking the app behind
  * "turn your phone" was a worse experience than a slightly tighter layout.
  */
+
+// ---------------------------------------------------------------------------
+// Fullscreen
+// ---------------------------------------------------------------------------
+
+/**
+ * Fullscreen state, kept in sync with the browser rather than with our clicks.
+ *
+ * The user can leave fullscreen without touching our button -- Escape on a
+ * desktop, the back gesture or a swipe-down on a phone -- so `fullscreenchange`
+ * is the source of truth. Tracking our own clicks instead would leave the
+ * button showing "exit" on a page that is no longer fullscreen.
+ */
+export function useFullscreen(): {
+  supported: boolean;
+  active: boolean;
+  toggle: () => void;
+} {
+  const [supported] = useState(fullscreenSupported);
+  const [active, setActive] = useState(isFullscreen);
+
+  useEffect(() => {
+    const sync = () => setActive(isFullscreen());
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+
+  const toggle = () => {
+    // Errors here are the browser refusing the request (no user gesture, or a
+    // permissions policy). Nothing to recover, and an error toast mid-game
+    // would be worse than the button appearing not to work.
+    void (active ? exitFullscreen() : enterFullscreen()).catch(() => {});
+  };
+
+  return { supported, active, toggle };
+}
+
+/** Renders nothing where fullscreen is unavailable, rather than a dead button. */
+export function FullscreenButton() {
+  const { supported, active, toggle } = useFullscreen();
+  if (!supported) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="shrink-0 rounded-full bg-white/8 px-2.5 py-1 text-[11px] ring-1 ring-white/10 transition hover:bg-white/12"
+      aria-label={active ? 'exit fullscreen' : 'fullscreen and rotate to landscape'}
+      title={active ? 'Exit fullscreen' : 'Fullscreen (locks to landscape on a phone)'}
+    >
+      {active ? '🡼' : '⛶'}
+    </button>
+  );
+}

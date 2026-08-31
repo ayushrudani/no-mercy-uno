@@ -157,7 +157,7 @@ describe('fuzz: random legal play never breaks an invariant', () => {
     it(`survives ${GAMES} full games with ${playerCount} players`, () => {
       let finished = 0;
       for (let i = 0; i < GAMES; i++) {
-        const res = playGame(i * 7919 + playerCount, playerCount);
+        const res = playGame(i * 7919 + playerCount, playerCount, { eliminationAt: 25 });
         if (res.finished) finished++;
       }
       // Every game must reach a winner; a stall means a rule can deadlock.
@@ -175,6 +175,7 @@ describe('fuzz: random legal play never breaks an invariant', () => {
       let finished = 0;
       for (let i = 0; i < GAMES; i++) {
         const res = playGame(i * 4001 + playerCount, playerCount, {
+          eliminationAt: 25,
           sevenZero: true,
           unoCall: true,
           unoPenalty: 2,
@@ -195,7 +196,7 @@ describe('fuzz: random legal play never breaks an invariant', () => {
     it(`survives ${GAMES} full games with ${playerCount} players and the 7-0 rule`, () => {
       let finished = 0;
       for (let i = 0; i < GAMES; i++) {
-        const res = playGame(i * 6151 + playerCount, playerCount, { sevenZero: true });
+        const res = playGame(i * 6151 + playerCount, playerCount, { eliminationAt: 25, sevenZero: true });
         if (res.finished) finished++;
       }
       expect(finished, `${playerCount}-player 7-0 games that reached a winner`).toBe(GAMES);
@@ -203,7 +204,7 @@ describe('fuzz: random legal play never breaks an invariant', () => {
   }
 
   /**
-   * Knock-out off, first-to-N rounds instead.
+   * Knock-out off -- the default.
    *
    * Termination is deliberately NOT asserted here, and that is a real property
    * of the mode rather than a gap in the test. With knock-out on, a player who
@@ -222,7 +223,6 @@ describe('fuzz: random legal play never breaks an invariant', () => {
       for (let i = 0; i < GAMES; i++) {
         playGame(i * 3313 + playerCount, playerCount, {
           eliminationAt: 0,
-          roundsToWin: 3,
           sevenZero: true,
           unoCall: true,
         });

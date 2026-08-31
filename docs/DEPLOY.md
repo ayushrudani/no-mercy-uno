@@ -74,14 +74,33 @@ dev server permanently, which holds the whole module graph in memory and turns
 every page load into hundreds of requests instead of two. More setup and
 slower, not less.
 
+### One-off: upgrading from the Google sign-in build
+
+Accounts changed shape. `User` lost `googleSub` and `email` and gained
+`username`, `passwordHash` and `mustResetPassword`, and the new columns are
+required with no sensible default for an existing row — so the old accounts
+cannot be carried across. There were only ever a handful of them and they
+signed in with Google, which no longer exists here, so the fix is to drop them
+and sign up again:
+
+```sh
+cd /var/www/no-mercy-uno/apps/server
+cp prisma/dev.db prisma/dev.db.bak          # keep the old match history
+pnpm exec prisma db push --accept-data-loss
+pm2 restart no-mercy-uno
+```
+
+`--accept-data-loss` is what makes Prisma go ahead with a change it cannot
+migrate row by row. Without the flag it stops and explains, which is the
+behaviour you want on every *other* deploy — do not put it in a script.
+
+Match rows survive the push, but they point at user ids that no longer exist,
+so the record panel will read empty until new games are played. On a fresh box
+with no database yet, none of this applies: plain `prisma db push` is enough.
+
 ---
 
 ## What this setup gives up
-
-**Anyone who reaches the site can sign in as any name.** The script sets
-`NODE_ENV=development`, which keeps the name-only sign-in enabled so you do not
-have to set up Google OAuth. There is no password. Fine for a link you send
-five friends; not fine if it spreads.
 
 **Voice chat will not work.** Browsers refuse microphone access on a plain
 `http://` origin, and you cannot get a certificate for a bare IP — a public CA
@@ -91,14 +110,17 @@ app can opt out of. Cards, chat and reactions all work.
 **Games are lost on restart.** Rooms live in memory. Deploy between games, not
 during one. Match history in SQLite survives.
 
-A domain fixes the first two. See below.
+A domain fixes the first. See below.
+
+Accounts are unaffected by any of this: signing up needs `SIGNUP_CODE`, so the
+site is closed to whoever stumbles onto the IP even without HTTPS.
 
 ---
 
 ## Optional: adding a domain
 
 Everything above keeps working. A domain buys you HTTPS, which buys you voice
-chat and Google sign-in — none of which are possible on a bare IP.
+chat — not possible on a bare IP.
 
 ### HTTPS
 
@@ -118,29 +140,37 @@ certbot rewrites the config for TLS and sets up renewal. Then set
 
 This alone makes voice possible — the microphone works on a secure origin.
 
-### Google sign-in
+### Accounts
 
-Needs the domain from the previous step: Google will not accept a raw IP as an
-authorised origin.
+There is no OAuth and no email. Accounts are a username and a password, and
+creating one requires the signup code — which is what keeps the server to the
+people it was built for, since it sits on a public IP with no domain in front
+of it.
 
-Google Cloud Console → APIs & Services → Credentials → **OAuth 2.0 Client ID**
-(Web application). Authorised JavaScript origins:
-
-```
-https://your.domain
-```
-
-Put the id in `apps/server/.env`:
+The code lives in `apps/server/.env`:
 
 ```sh
-GOOGLE_CLIENT_ID=...apps.googleusercontent.com
-NODE_ENV=production
+SIGNUP_CODE=94997749
 ```
 
-`NODE_ENV=production` removes the name-only sign-in route entirely — the
-handler is never registered, so it cannot be re-enabled by a stray variable.
-Restart, then check `curl https://your.domain/api/auth/dev` returns
-**404**.
+Change it and `pm2 restart no-mercy-uno` to cut off new signups. Existing
+accounts keep working; the code is only checked when creating one.
+
+**Every new account must change its password before it can play.** Signing up
+returns a token that authorises exactly one thing — setting a new password —
+and the socket refuses it, so a fresh account cannot join a room until that is
+done. The password typed at signup is a one-time password by design, which
+means you can hand someone a temporary one over chat without it becoming their
+real one.
+
+Passwords are hashed with scrypt (node's built-in — no native module to rebuild
+on the box). Nothing is recoverable: there is no reset email, so a forgotten
+password means deleting the row and signing up again.
+
+```sh
+cd ~/no-mercy-uno/apps/server
+pnpm exec prisma studio   # or: sqlite3 prisma/dev.db
+```
 
 ### Voice across different networks
 
@@ -213,7 +243,10 @@ server is writing.
 | Players in one room cannot see each other | PM2 running more than one instance. Rooms are in-process with no Redis adapter, so a second worker splits the table. Check `pm2 describe no-mercy-uno`. |
 | Microphone never opens | Not on HTTPS. |
 | Voice works for some people, not others | TURN. Check the secret matches and the UDP range is open in the **Lightsail** firewall. |
-| `/api/auth/dev` returns a token in production | `NODE_ENV` is not `production`. That is passwordless sign-in as anyone. |
+| Anyone can create an account | `SIGNUP_CODE` is still the default. Change it in `apps/server/.env` and restart. |
+| A new account cannot join a room | Working as intended — it must change its password first. The socket rejects a reset-scoped token. |
+| Someone forgot their password | There is no reset email. Delete their row and have them sign up again. |
+| Fullscreen button missing on a phone | iOS Safari has no fullscreen API for normal elements, so the button hides itself. Android Chrome has both fullscreen and the landscape lock. |
 
 ### `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`
 

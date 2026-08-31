@@ -17,12 +17,13 @@ function view(over: Partial<PlayerGameView> = {}): PlayerGameView {
       hand: [card('c1'), card('c2')],
       playableCardIds: ['c1'],
       eliminated: false,
+      place: null,
       calledUno: false,
       canCallUno: false,
     },
     players: [
-      { id: 'me', cardCount: 2, eliminated: false, roundsWon: 0, calledUno: false },
-      { id: 'them', cardCount: 5, eliminated: false, roundsWon: 0, calledUno: false },
+      { id: 'me', cardCount: 2, eliminated: false, place: null, calledUno: false },
+      { id: 'them', cardCount: 5, eliminated: false, place: null, calledUno: false },
     ],
     seats: ['me', 'them'],
     turnPlayerId: 'me',
@@ -117,6 +118,7 @@ describe('the UNO button', () => {
       hand: [card('c1'), card('c2')],
       playableCardIds: [],
       eliminated: false,
+      place: null,
       calledUno: false,
       canCallUno: true,
     };
@@ -136,7 +138,7 @@ describe('the UNO button', () => {
 describe('spectators', () => {
   it('treats an eliminated player as a spectator', () => {
     const out = view({
-      you: { id: 'me', hand: [], playableCardIds: [], eliminated: true, calledUno: false, canCallUno: false },
+      you: { id: 'me', hand: [], playableCardIds: [], eliminated: true, place: null, calledUno: false, canCallUno: false },
       turnPlayerId: 'them',
     });
     expect(turnActions(out, 'me').isSpectator).toBe(true);

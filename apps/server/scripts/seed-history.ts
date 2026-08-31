@@ -25,11 +25,13 @@ async function main(): Promise<void> {
   const users = await Promise.all(
     NAMES.map((name) =>
       db().user.upsert({
-        where: { googleSub: `dev:${name.toLowerCase()}` },
+        where: { username: name.toLowerCase() },
         update: {},
         create: {
-          googleSub: `dev:${name.toLowerCase()}`,
-          email: `dev:${name.toLowerCase()}@dev.local`,
+          username: name.toLowerCase(),
+          // Unusable by design: these are fixtures for the record panel, not
+          // accounts anyone should be able to log into.
+          passwordHash: 'seed-no-login',
           displayName: name,
         },
       }),

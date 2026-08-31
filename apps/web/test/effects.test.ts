@@ -96,10 +96,18 @@ describe('elimination and endings', () => {
     expect(of({ t: 'gameEnded', winnerId: ME }).sound).toBe('win');
   });
 
-  it('marks a round you went out on as good', () => {
-    expect(of({ t: 'roundEnded', winnerId: ME }).moment).toMatchObject({
-      text: 'YOU WENT OUT',
-      tone: 'good',
+  it('tells you what place you took, and that the others play on', () => {
+    const r = of({ t: 'playerFinished', playerId: ME, place: 1 });
+    expect(r.moment).toMatchObject({ text: 'YOU FINISHED 1st', tone: 'good' });
+    // Going out and then watching reads as being kicked unless the banner says
+    // you have banked a place and the game continues without you.
+    expect(r.moment?.sub).toContain('others play on');
+    expect(r.moment?.hold).toBeGreaterThan(2000);
+  });
+
+  it('names the place for everyone else too', () => {
+    expect(of({ t: 'playerFinished', playerId: 'them', place: 2 }).moment).toMatchObject({
+      text: 'Rohit — 2nd',
     });
   });
 });

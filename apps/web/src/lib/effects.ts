@@ -17,6 +17,8 @@ export interface Moment {
   text: string;
   sub?: string;
   tone: 'neutral' | 'danger' | 'good';
+  /** Milliseconds to stay on screen. Defaults to MOMENT_MS. */
+  hold?: number;
 }
 
 /** Draw cards worth this much or more get the full slam treatment. */
@@ -172,15 +174,21 @@ export function effectFor(e: GameEvent, myId: string, nameOf: (id: string) => st
         moment: { text: 'STALEMATE', sub: 'deck ran dry — redealing', tone: 'neutral' },
       };
 
-    case 'roundEnded':
+    case 'playerFinished': {
+      const ordinal = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'][e.place] ?? `#${e.place}`;
+      const mine = e.playerId === myId;
       return {
-        sound: 'round',
+        sound: e.place === 1 ? 'win' : 'round',
         moment: {
-          text: e.winnerId === myId ? 'YOU WENT OUT' : `${nameOf(e.winnerId)} WENT OUT`,
-          sub: 'new round',
-          tone: e.winnerId === myId ? 'good' : 'neutral',
+          text: mine ? `YOU FINISHED ${ordinal}` : `${nameOf(e.playerId)} — ${ordinal}`,
+          // Spelled out because going out and then watching reads as being
+          // kicked unless it is clear you have banked a place.
+          sub: mine ? 'you are done — others play on' : 'out of cards',
+          tone: mine ? 'good' : 'neutral',
+          hold: e.place === 1 ? 2600 : 1800,
         },
       };
+    }
 
     case 'gameEnded':
       return { sound: 'win', moment: null };
@@ -226,7 +234,7 @@ export function useGameEffects(
     if (latest) {
       setMoment(latest);
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setMoment(null), MOMENT_MS);
+      timer.current = setTimeout(() => setMoment(null), latest.hold ?? MOMENT_MS);
     }
   }, [events, myId]);
 

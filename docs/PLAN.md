@@ -1,7 +1,7 @@
 # No Mercy UNO — Web App Plan
 
 Multiplayer UNO No Mercy for a friend group spread across cities.
-Google login, password-protected rooms, live voice chat, landscape-only, phone-first.
+Username/password login behind a signup code, password-protected rooms, live voice chat, phone-first with an optional fullscreen landscape lock.
 
 ## Status
 
@@ -32,7 +32,7 @@ production server bundle serving the built client locally.
 | Server | Node 22 + Fastify + Socket.IO | Fastify for REST/auth, Socket.IO for realtime + voice signaling + auto-reconnect |
 | DB | **SQLite** + Prisma | Users, profiles, match history. Swapped from Postgres: one friend group's writes are tiny, so it removes a container from the box and makes backups "copy one file". Prisma keeps a Postgres move to a provider swap. |
 | Cache/State | In-process Map (v1), Redis adapter (later) | A single Lightsail box needs no Redis until we scale past one process |
-| Auth | Google Identity Services -> server verifies ID token -> our own JWT (httpOnly cookie) | No Passport bloat, no password storage |
+| Auth | Username + password (scrypt) behind a signup code -> our own JWT (httpOnly cookie), scoped so a new account can only change its password | No OAuth setup, no email, nothing to configure in a console |
 | Frontend | React 19 + Vite + TypeScript | Fast HMR, small build |
 | Styling | Tailwind CSS v4 | Fast iteration on a heavily custom UI |
 | Animation | Framer Motion (`layoutId` for card flight) | Cards physically travel hand -> pile; this is 80% of the "feel" |
@@ -202,7 +202,7 @@ and **on** in the default room settings. The lobby exposes a switch for each.
 
 ## 4. Rooms, auth & profiles
 
-**Flow:** Google sign-in -> lobby -> Create Room (name + password + settings)
+**Flow:** sign in or sign up -> forced first password change -> lobby -> Create Room (name + password + settings)
 or Join Room (6-char code + password) -> waiting room -> host starts.
 
 - Room code: 6 uppercase chars with ambiguous glyphs removed (no O/0/I/1).
@@ -211,7 +211,7 @@ or Join Room (6-char code + password) -> waiting room -> host starts.
 - Reconnect: the JWT identifies you; the server re-attaches your socket to your
   seat and replays current state. Refresh, tab close, or an incoming phone call
   mid-game costs you nothing.
-- Profile settings: display name, avatar (Google photo or picked emoji/colour),
+- Profile settings: display name, change password, avatar (initials or picked emoji/colour),
   card-back skin, SFX volume, mic default on/off, preferred turn timer.
 - Match history: who played, who won, final card counts, duration.
 

@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 /**
  * Environment is validated once, at boot, and the process refuses to start if
- * anything is missing. A server that comes up healthy and then fails to verify
- * a Google token an hour later is far worse than one that will not start.
+ * anything is missing. A server that comes up healthy and then fails to sign a
+ * session token an hour later is far worse than one that will not start.
  */
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -13,13 +13,14 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).default('file:./dev.db'),
 
   /**
-   * OAuth client id from Google Cloud Console; also the ID-token audience.
+   * Invite code required to create an account.
    *
-   * Optional. Left empty, the Google button simply does not render and the
-   * only way in is the development sign-in -- which is the right trade for a
-   * private game among friends who do not want to set up OAuth.
+   * The server is on a public IP with no domain, so the signup route is
+   * reachable by anyone who finds it. This is what keeps the game to the group
+   * it was built for: no code, no account. Rooms still have their own
+   * passwords -- this only gates who can exist at all.
    */
-  GOOGLE_CLIENT_ID: z.string().default(''),
+  SIGNUP_CODE: z.string().min(1).default('94997749'),
 
   /** Signing key for our own session tokens. Must be >= 32 chars. */
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),

@@ -215,12 +215,15 @@ describe('turn clock', () => {
     room.start('alice');
     for (let i = 0; i < 60; i++) clock.advance(15_001);
 
-    // Auto-players shed cards rather than hoarding them, so rounds keep ending
-    // and nobody reaches 25 -- the game does not finish itself, but the clock
-    // must never stall while somebody is still connected.
-    expect(currentGame(room).round).toBeGreaterThan(1);
-    expect(clock.pending).toBe(1);
+    // There is a single deal, so `round` never advances. What must hold is that
+    // the clock keeps firing and play keeps moving while anyone is connected.
+    const game = currentGame(room);
+    const stillPlaying = game.players.filter((p) => p.place === null && !p.eliminated);
+    expect(game.discardPile.length).toBeGreaterThan(1);
     expect(transport.sent.filter((s) => s.event === 'game:events').length).toBeGreaterThan(30);
+    // Either the game finished on the clock, or it is still armed for whoever
+    // is left. A stalled clock with players remaining is the failure.
+    if (stillPlaying.length > 1) expect(clock.pending).toBe(1);
   });
 
   it('stops the clock once every player has gone, so an abandoned room goes idle', async () => {

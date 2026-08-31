@@ -54,12 +54,24 @@ export function tableView(state: GameState): TableView {
   };
 }
 
+/**
+ * Seats still in play: not knocked out, and not already finished.
+ *
+ * A player who empties their hand keeps their seat but stops taking turns --
+ * they have won their place and the others play on for the rest.
+ */
 export function activeSeats(state: GameState): number[] {
   const out: number[] = [];
   for (let i = 0; i < state.players.length; i++) {
-    if (!state.players[i]!.eliminated) out.push(i);
+    const p = state.players[i]!;
+    if (!p.eliminated && p.place === null) out.push(i);
   }
   return out;
+}
+
+/** The next finishing position to hand out. */
+function nextPlace(s: GameState): number {
+    return s.players.filter((p) => p.place !== null).length + 1;
 }
 
 export function activeCount(state: GameState): number {
@@ -228,6 +240,7 @@ function startRound(s: GameState, leadSeat: number, events: GameEvent[]): void {
     all.push(...p.hand);
     p.hand = [];
     p.calledUno = false;
+    p.place = null;
   }
 
   const res = shuffle(all, s.rngState);
@@ -264,39 +277,39 @@ function startRound(s: GameState, leadSeat: number, events: GameEvent[]): void {
 }
 
 /** Called after a play empties a hand, and after any elimination. */
-function checkRoundOrGameEnd(s: GameState, events: GameEvent[]): boolean {
-  const alive = activeSeats(s);
-
-  const endGame = (winnerId: string | null): true => {
-    s.winnerId = winnerId;
-    s.phase = { t: 'gameOver' };
-    if (winnerId) events.push({ t: 'gameEnded', winnerId });
-    return true;
-  };
-
-  // Last player standing. Only a win condition when knock-out is enabled --
-  // with it off nobody is ever removed, so this can only mean an empty table.
-  if (alive.length <= 1) {
-    return endGame(alive[0] !== undefined ? s.players[alive[0]]!.id : null);
-  }
-
-  const wentOut = alive.find((seat) => s.players[seat]!.hand.length === 0);
-  if (wentOut !== undefined) {
-    const winner = s.players[wentOut]!;
-    winner.roundsWon += 1;
-    events.push({ t: 'roundEnded', winnerId: winner.id });
-
-    // First to N rounds. Checked after the increment so the round that wins
-    // the game is still reported as a round win first.
-    if (s.config.roundsToWin > 0 && winner.roundsWon >= s.config.roundsToWin) {
-      return endGame(winner.id);
+/**
+ * Record anyone who has just gone out, then end the game if only one player is
+ * left holding cards.
+ *
+ * Emptying your hand finishes YOUR game and nobody else's: you take the next
+ * place, keep your seat as a spectator, and everyone else plays on for second,
+ * third and so on. There is no re-deal -- one hand is the whole game.
+ */
+function checkGameEnd(s: GameState, events: GameEvent[]): boolean {
+  for (const seat of activeSeats(s)) {
+    const player = s.players[seat]!;
+    if (player.hand.length === 0) {
+      player.place = nextPlace(s);
+      events.push({ t: 'playerFinished', playerId: player.id, place: player.place });
     }
-
-    startRound(s, wentOut, events);
-    return true;
   }
 
-  return false;
+  const remaining = activeSeats(s);
+  if (remaining.length > 1) return false;
+
+  // One player left holding cards: they come last, and the game is over.
+  const lastSeat = remaining[0];
+  if (lastSeat !== undefined) {
+    const last = s.players[lastSeat]!;
+    last.place = nextPlace(s);
+    events.push({ t: 'playerFinished', playerId: last.id, place: last.place });
+  }
+
+  const winner = s.players.find((p) => p.place === 1);
+  s.winnerId = winner?.id ?? null;
+  s.phase = { t: 'gameOver' };
+  if (s.winnerId) events.push({ t: 'gameEnded', winnerId: s.winnerId });
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +333,7 @@ export function createGame(
     id,
     hand: [],
     eliminated: false,
-    roundsWon: 0,
+    place: null,
     calledUno: false,
   }));
 
@@ -658,7 +671,7 @@ function applyPlay(
   // After effects, because Discard All can drop a hand straight to one.
   enforceUnoCall(s, seat, events);
 
-  if (checkRoundOrGameEnd(s, events)) return;
+  if (checkGameEnd(s, events)) return;
   normalizeTurn(s);
 }
 
@@ -691,7 +704,7 @@ function applyDraw(s: GameState, playerId: string, events: GameEvent[]): void {
     s.pendingDraw = 0;
     s.pendingTier = 0;
     checkElimination(s, seat, events);
-    if (checkRoundOrGameEnd(s, events)) return;
+    if (checkGameEnd(s, events)) return;
     advance(s, 1);
     normalizeTurn(s);
     return;
@@ -718,7 +731,7 @@ function applyDraw(s: GameState, playerId: string, events: GameEvent[]): void {
 
   events.push({ t: 'drew', playerId, count: given, reason: 'turn' });
   checkElimination(s, seat, events);
-  if (checkRoundOrGameEnd(s, events)) return;
+  if (checkGameEnd(s, events)) return;
 
   const drawn = player.hand[player.hand.length - 1];
   if (s.config.drawOneThenPlay && given > 0 && drawn && canPlay(drawn, tableView(s))) {
@@ -751,7 +764,7 @@ function applyRouletteChoice(s: GameState, playerId: string, color: Color, event
   }
   const seat = seatOf(s, playerId);
   resolveRoulette(s, seat, color, events);
-  if (checkRoundOrGameEnd(s, events)) return;
+  if (checkGameEnd(s, events)) return;
   normalizeTurn(s);
 }
 
@@ -775,7 +788,7 @@ function applySwapChoice(s: GameState, playerId: string, targetId: string, event
   enforceUnoCall(s, actorSeat, events);
   advance(s, 1);
 
-  if (checkRoundOrGameEnd(s, events)) return;
+  if (checkGameEnd(s, events)) return;
   normalizeTurn(s);
 }
 

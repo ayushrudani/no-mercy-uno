@@ -1,29 +1,112 @@
 /**
  * How a game ends.
  *
- * Two mutually sensible modes:
+ * One deal, played to the finish. Emptying your hand ends YOUR game and nobody
+ * else's: you take the next place, keep your seat, and the rest play on for
+ * second, third and so on. The last player still holding cards comes last.
  *
- *  - **Knock-out** (`eliminationAt: 25`) — the official No Mercy rule. Reach 25
- *    cards and you are out; last player standing wins.
- *  - **First to N rounds** (`roundsToWin: 3`) — nobody is ever removed, so
- *    nobody spends the evening spectating.
- *
- * Turning knock-out off without setting `roundsToWin` leaves a game with no end
- * condition at all, which is the trap these tests exist to catch.
+ * There is no re-deal. An earlier design ended the round and dealt everyone a
+ * fresh seven, which made going out look like the game had restarted.
  */
 
 import { describe, expect, it } from 'vitest';
-import { reduce } from '../src/engine.js';
+import { activeSeats, currentActorId, reduce } from '../src/engine.js';
 import type { GameState } from '../src/types.js';
 import { fillerPile, handOf, makeState, num } from './helpers.js';
 
 const play = (s: GameState, p: number, cardId: string) =>
   reduce(s, { t: 'play', playerId: 'p' + p, cardId });
 
-describe('knock-out mode (official)', () => {
-  const KNOCKOUT = { eliminationAt: 25, roundsToWin: 0 };
+const places = (s: GameState) => s.players.map((p) => p.place);
 
-  it('removes a player who reaches the limit', () => {
+describe('going out', () => {
+  it('takes first place and does NOT re-deal anyone', () => {
+    const s = makeState({
+      hands: [[num('red', 1)], [num('blue', 2), num('blue', 3)], [num('green', 4), num('green', 5)]],
+      top: num('red', 5),
+    });
+    const { state, events } = play(s, 0, handOf(s, 0)[0]!.id);
+
+    expect(state.players[0]!.place).toBe(1);
+    expect(events).toContainEqual({ t: 'playerFinished', playerId: 'p0', place: 1 });
+
+    // The others keep the hands they had. Nobody gets fresh cards.
+    expect(handOf(state, 1)).toHaveLength(2);
+    expect(handOf(state, 2)).toHaveLength(2);
+    expect(state.round).toBe(1);
+    expect(state.phase.t).not.toBe('gameOver');
+  });
+
+  it('takes the finished player out of the turn order', () => {
+    const s = makeState({
+      hands: [[num('red', 1)], [num('blue', 2), num('blue', 3)], [num('green', 4), num('green', 5)]],
+      top: num('red', 5),
+    });
+    const { state } = play(s, 0, handOf(s, 0)[0]!.id);
+
+    expect(activeSeats(state)).toEqual([1, 2]);
+    expect(currentActorId(state)).not.toBe('p0');
+  });
+
+  it('hands out places in the order people go out', () => {
+    const s = makeState({
+      hands: [[num('red', 1)], [num('red', 2)], [num('red', 3), num('red', 4)]],
+      top: num('red', 5),
+    });
+    let st = play(s, 0, handOf(s, 0)[0]!.id).state;
+    expect(places(st)).toEqual([1, null, null]);
+
+    // p1 is next in order and goes out too, taking second.
+    st = play(st, 1, handOf(st, 1)[0]!.id).state;
+    expect(places(st)).toEqual([1, 2, 3]);
+  });
+
+  it('ends the game when one player is left, and they come last', () => {
+    const s = makeState({
+      hands: [[num('red', 1)], [num('red', 2), num('red', 3)]],
+      top: num('red', 5),
+    });
+    const { state, events } = play(s, 0, handOf(s, 0)[0]!.id);
+
+    expect(state.phase.t).toBe('gameOver');
+    expect(state.winnerId).toBe('p0');
+    expect(places(state)).toEqual([1, 2]);
+    expect(events).toContainEqual({ t: 'playerFinished', playerId: 'p1', place: 2 });
+    expect(events).toContainEqual({ t: 'gameEnded', winnerId: 'p0' });
+  });
+
+  it('makes the first player out the winner, not the last one standing', () => {
+    const s = makeState({
+      hands: [[num('red', 1)], [num('red', 2)], [num('red', 3)]],
+      top: num('red', 5),
+    });
+    let st = play(s, 0, handOf(s, 0)[0]!.id).state;
+    st = play(st, 1, handOf(st, 1)[0]!.id).state;
+
+    expect(st.phase.t).toBe('gameOver');
+    // p2 was left holding a card, so p0 -- first out -- wins.
+    expect(st.winnerId).toBe('p0');
+    expect(st.players[2]!.place).toBe(3);
+  });
+
+  it('keeps a finished player in the game state as a spectator', () => {
+    const s = makeState({
+      hands: [[num('red', 1)], [num('blue', 2), num('blue', 3)], [num('green', 4), num('green', 5)]],
+      top: num('red', 5),
+    });
+    const { state } = play(s, 0, handOf(s, 0)[0]!.id);
+
+    // Still seated, not eliminated -- they simply have no cards and no turns.
+    expect(state.players).toHaveLength(3);
+    expect(state.players[0]!.eliminated).toBe(false);
+    expect(handOf(state, 0)).toHaveLength(0);
+  });
+});
+
+describe('knock-out at 25, when a room turns it on', () => {
+  const KNOCKOUT = { eliminationAt: 25 };
+
+  it('removes the player and leaves them unplaced', () => {
     const s = makeState({
       hands: [[num('red', 1)], Array.from({ length: 20 }, () => num('blue', 9)), [num('green', 1)]],
       top: num('red', 5),
@@ -34,11 +117,14 @@ describe('knock-out mode (official)', () => {
       config: KNOCKOUT,
     });
     const { state, events } = reduce(s, { t: 'draw', playerId: 'p1' });
+
     expect(state.players[1]!.eliminated).toBe(true);
+    // No place: they never went out, so they rank below everyone who did.
+    expect(state.players[1]!.place).toBeNull();
     expect(events.some((e) => e.t === 'eliminated')).toBe(true);
   });
 
-  it('ends when one player is left', () => {
+  it('ends the game when knock-out leaves one player', () => {
     const s = makeState({
       hands: [[num('red', 1)], Array.from({ length: 24 }, () => num('blue', 9))],
       top: num('red', 5),
@@ -48,28 +134,14 @@ describe('knock-out mode (official)', () => {
       drawPile: fillerPile(10),
       config: KNOCKOUT,
     });
-    const { state, events } = reduce(s, { t: 'draw', playerId: 'p1' });
+    const { state } = reduce(s, { t: 'draw', playerId: 'p1' });
     expect(state.phase.t).toBe('gameOver');
+    expect(state.players[0]!.place).toBe(1);
     expect(state.winnerId).toBe('p0');
-    expect(events).toContainEqual({ t: 'gameEnded', winnerId: 'p0' });
-  });
-
-  it('keeps dealing rounds until someone is knocked out', () => {
-    const s = makeState({
-      hands: [[num('red', 1)], [num('blue', 2)], [num('green', 3)]],
-      top: num('red', 5),
-      config: KNOCKOUT,
-    });
-    const { state, events } = play(s, 0, handOf(s, 0)[0]!.id);
-    expect(events).toContainEqual({ t: 'roundEnded', winnerId: 'p0' });
-    expect(state.phase.t).not.toBe('gameOver');
-    expect(state.round).toBe(2);
   });
 });
 
-describe('knock-out off', () => {
-  const NO_KNOCKOUT = { eliminationAt: 0, roundsToWin: 3 };
-
+describe('with knock-out off (the default)', () => {
   it('never removes anyone, however many cards they hold', () => {
     const huge = Array.from({ length: 40 }, () => num('blue', 9));
     const s = makeState({
@@ -79,73 +151,10 @@ describe('knock-out off', () => {
       pendingDraw: 10,
       pendingTier: 10,
       drawPile: fillerPile(40),
-      config: NO_KNOCKOUT,
     });
     const { state, events } = reduce(s, { t: 'draw', playerId: 'p1' });
     expect(state.players[1]!.eliminated).toBe(false);
     expect(handOf(state, 1).length).toBeGreaterThan(45);
     expect(events.some((e) => e.t === 'eliminated')).toBe(false);
-  });
-
-  it('ends the game when someone reaches the round target', () => {
-    const s = makeState({
-      hands: [[num('red', 1)], [num('blue', 2)], [num('green', 3)]],
-      top: num('red', 5),
-      config: NO_KNOCKOUT,
-    });
-    // Two wins already; this one takes them to three.
-    s.players[0]!.roundsWon = 2;
-
-    const { state, events } = play(s, 0, handOf(s, 0)[0]!.id);
-    expect(state.phase.t).toBe('gameOver');
-    expect(state.winnerId).toBe('p0');
-    // The round win is still reported before the game win.
-    expect(events).toContainEqual({ t: 'roundEnded', winnerId: 'p0' });
-    expect(events).toContainEqual({ t: 'gameEnded', winnerId: 'p0' });
-  });
-
-  it('deals another round when the target is not reached yet', () => {
-    const s = makeState({
-      hands: [[num('red', 1)], [num('blue', 2)], [num('green', 3)]],
-      top: num('red', 5),
-      config: NO_KNOCKOUT,
-    });
-    const { state } = play(s, 0, handOf(s, 0)[0]!.id);
-    expect(state.phase.t).not.toBe('gameOver');
-    expect(state.players[0]!.roundsWon).toBe(1);
-    expect(state.round).toBe(2);
-  });
-
-  it('counts each player rounds separately', () => {
-    // p1 needs a card that is actually playable on the top card, or the move is
-    // refused and the test proves nothing.
-    const s = makeState({
-      hands: [[num('red', 1)], [num('red', 2)], [num('green', 3)]],
-      top: num('red', 5),
-      turnIndex: 1,
-      config: NO_KNOCKOUT,
-    });
-    s.players[0]!.roundsWon = 2;
-    s.players[1]!.roundsWon = 2;
-
-    // p1 going out must be credited to p1, however close p0 was.
-    const { state } = play(s, 1, handOf(s, 1)[0]!.id);
-    expect(state.winnerId).toBe('p1');
-    expect(state.players[0]!.roundsWon).toBe(2);
-    expect(state.players[1]!.roundsWon).toBe(3);
-  });
-});
-
-describe('both switched off', () => {
-  it('never ends, which is why the room settings must not allow it', () => {
-    const s = makeState({
-      hands: [[num('red', 1)], [num('blue', 2)], [num('green', 3)]],
-      top: num('red', 5),
-      config: { eliminationAt: 0, roundsToWin: 0 },
-    });
-    const { state } = play(s, 0, handOf(s, 0)[0]!.id);
-    // A round ended and a new one was dealt, but the game did not finish.
-    expect(state.phase.t).not.toBe('gameOver');
-    expect(state.round).toBe(2);
   });
 });

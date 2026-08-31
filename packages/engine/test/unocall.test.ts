@@ -138,7 +138,7 @@ describe('the penalty', () => {
     // Nothing to call: zero cards is a win, not a last card.
     const { events } = play(s, 0, handOf(s, 0)[0]!.id);
     expect(events.some((e) => e.t === 'unoPenalty')).toBe(false);
-    expect(events.some((e) => e.t === 'roundEnded')).toBe(true);
+    expect(events.some((e) => e.t === 'playerFinished')).toBe(true);
   });
 
   it('fires when Discard All drops you straight to one', () => {

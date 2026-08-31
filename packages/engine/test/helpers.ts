@@ -37,6 +37,8 @@ export interface StateSpec {
   eliminated?: number[];
   /** Seats that have already pressed UNO. */
   calledUno?: number[];
+  /** Finishing positions, indexed by seat. */
+  places?: (number | null)[];
   config?: Partial<GameConfig>;
   seed?: number;
 }
@@ -51,7 +53,7 @@ export function makeState(spec: StateSpec): GameState {
     id: `p${i}`,
     hand,
     eliminated: spec.eliminated?.includes(i) ?? false,
-    roundsWon: 0,
+    place: spec.places?.[i] ?? null,
     calledUno: spec.calledUno?.includes(i) ?? false,
   }));
 

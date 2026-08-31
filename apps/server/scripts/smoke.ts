@@ -28,11 +28,24 @@ function check(label: string, cond: boolean, detail = ''): void {
   if (!cond) failures++;
 }
 
+/**
+ * Make an account and a session token directly, skipping the HTTP auth routes.
+ *
+ * The smoke test is about rooms and gameplay; going through signup and the
+ * forced password change would only add a way for it to fail for reasons that
+ * have nothing to do with what it is checking. `mustResetPassword` is cleared
+ * so the seat is usable straight away.
+ */
 async function seedUser(sub: string, name: string): Promise<{ id: string; token: string }> {
   const user = await prisma.user.upsert({
-    where: { googleSub: sub },
+    where: { username: sub },
     update: { displayName: name },
-    create: { googleSub: sub, email: `${sub}@smoke.test`, displayName: name },
+    create: {
+      username: sub,
+      passwordHash: 'smoke-no-login',
+      mustResetPassword: false,
+      displayName: name,
+    },
   });
   return { id: user.id, token: await signSession(user.id) };
 }

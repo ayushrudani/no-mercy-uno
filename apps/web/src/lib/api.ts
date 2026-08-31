@@ -5,7 +5,9 @@
 
 export interface Profile {
   id: string;
-  email: string;
+  username: string;
+  /** True until the signup password has been replaced. */
+  mustResetPassword: boolean;
   displayName: string;
   avatarUrl: string | null;
   cardBack: string;
@@ -32,8 +34,21 @@ export interface MatchSummary {
 }
 
 export interface AppConfig {
-  googleClientId: string;
-  devAuth: boolean;
+  signupEnabled: boolean;
+  minPasswordLength: number;
+}
+
+/**
+ * What every auth route returns.
+ *
+ * `mustResetPassword` decides what the token is worth: when it is true the
+ * token only authorises `resetPassword`, and the app must show the new-password
+ * screen rather than storing it as a session.
+ */
+export interface AuthResult {
+  token: string;
+  mustResetPassword: boolean;
+  user: Profile;
 }
 
 export class ApiError extends Error {
@@ -50,8 +65,13 @@ export class ApiError extends Error {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: 'include',
-    headers: init.body ? { 'Content-Type': 'application/json' } : {},
     ...init,
+    // Merged, not replaced: the reset call needs to add an Authorization
+    // header without losing the content type its body depends on.
+    headers: {
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init.headers,
+    },
   });
 
   if (!res.ok) {
@@ -66,17 +86,36 @@ export const api = {
 
   me: () => request<{ user: Profile }>('/api/me'),
 
-  signInWithGoogle: (idToken: string) =>
-    request<{ token: string; user: Profile }>('/api/auth/google', {
+  signUp: (input: { username: string; password: string; code: string; displayName?: string }) =>
+    request<AuthResult>('/api/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ idToken }),
+      body: JSON.stringify(input),
     }),
 
-  /** Development only; the route does not exist in a production build. */
-  signInAsDev: (name: string) =>
-    request<{ token: string; user: Profile }>('/api/auth/dev', {
+  signIn: (username: string, password: string) =>
+    request<AuthResult>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ username, password }),
+    }),
+
+  /**
+   * Spend a reset token on a new password.
+   *
+   * The token goes in an Authorization header rather than a cookie: a reset
+   * token is not a session and is deliberately never stored as one, so it only
+   * exists in memory between the login screen and this call.
+   */
+  resetPassword: (resetToken: string, newPassword: string) =>
+    request<AuthResult>('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resetToken}` },
+      body: JSON.stringify({ newPassword }),
+    }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ token: string; user: Profile }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
     }),
 
   signOut: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),

@@ -6,9 +6,9 @@
  * remember to press Save before a game starts.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { CardBack, CARD_BACK_IDS, isCardBackId } from '../components/Card.js';
-import { api, type MatchSummary, type Profile as ProfileT } from '../lib/api.js';
+import { api, tokenStore, type MatchSummary, type Profile as ProfileT } from '../lib/api.js';
 import { summarise, type Stats } from '../lib/stats.js';
 import { sound } from '../lib/sound.js';
 import { useStore } from '../lib/store.js';
@@ -86,7 +86,7 @@ export function ProfileScreen({
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold">{profile.displayName}</div>
-                <div className="truncate text-[11px] text-white/35">{profile.email}</div>
+                <div className="truncate text-[11px] text-white/35">@{profile.username}</div>
               </div>
             </div>
 
@@ -167,6 +167,8 @@ export function ProfileScreen({
             </p>
 
             {saving && <p className="mt-3 text-[10px] text-white/35">saving…</p>}
+
+            <ChangePassword />
           </section>
 
           {/* --- record --- */}
@@ -226,6 +228,120 @@ export function ProfileScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Change your password.
+ *
+ * Collapsed by default: it is the one setting here that is not a preference,
+ * and leaving three password boxes open under the volume slider makes the panel
+ * read like a security form rather than a game.
+ *
+ * Unlike the forced first change, this one needs the old password -- the
+ * session cookie alone should not be enough to lock the real owner out from a
+ * machine someone left signed in.
+ */
+function ChangePassword() {
+  const toast = useStore((s) => s.toast);
+
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setCurrent('');
+    setNext('');
+    setConfirm('');
+    setError(null);
+  };
+
+  const mismatch = confirm.length > 0 && confirm !== next;
+  const ready = current.length > 0 && next.length >= 8 && confirm === next;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { token } = await api.changePassword(current, next);
+      // The server issued a fresh session; the socket handshake reads this.
+      tokenStore.set(token);
+      reset();
+      setOpen(false);
+      toast('info', 'Password changed.');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-4 w-full rounded-lg bg-white/5 py-2 text-[11px] font-semibold text-white/50 ring-1 ring-white/8 transition hover:bg-white/8 hover:text-white/75"
+      >
+        Change password
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 space-y-2 rounded-xl bg-white/4 p-3 ring-1 ring-white/8">
+      <div className="text-[11px] font-semibold text-white/55">Change password</div>
+      <input
+        type="password"
+        value={current}
+        onChange={(e) => setCurrent(e.target.value)}
+        placeholder="current password"
+        autoComplete="current-password"
+        className="field w-full px-3 py-2 text-sm"
+      />
+      <input
+        type="password"
+        value={next}
+        onChange={(e) => setNext(e.target.value)}
+        placeholder="new password (8+ characters)"
+        autoComplete="new-password"
+        className="field w-full px-3 py-2 text-sm"
+      />
+      <input
+        type="password"
+        value={confirm}
+        onChange={(e) => setConfirm(e.target.value)}
+        placeholder="confirm new password"
+        autoComplete="new-password"
+        className="field w-full px-3 py-2 text-sm"
+      />
+      {mismatch && <p className="text-[10px] text-red-400">These do not match.</p>}
+      {error && <p className="text-[10px] text-red-400">{error}</p>}
+      <div className="flex gap-2 pt-1">
+        <button
+          type="submit"
+          disabled={busy || !ready}
+          className="flex-1 rounded-lg bg-amber-300 py-2 text-[11px] font-black text-slate-900 transition hover:brightness-110 disabled:opacity-35"
+        >
+          {busy ? 'saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            reset();
+            setOpen(false);
+          }}
+          className="rounded-lg bg-white/5 px-3 py-2 text-[11px] font-semibold text-white/45 transition hover:text-white/70"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 

@@ -51,18 +51,17 @@ export interface GameConfig {
   /**
    * Hand size at which a player is knocked out. **0 disables knock-out.**
    *
-   * This is the official No Mercy rule, and it is also the game's win
-   * condition -- last player standing. Turning it off therefore requires
-   * `roundsToWin`, or nothing would ever end.
+   * Optional and off by default. A player knocked out this way is ranked below
+   * everyone who managed to go out properly.
    */
   eliminationAt: number;
   /**
-   * First player to win this many rounds wins the game. 0 disables.
+   * Hands dealt to each player at the start.
    *
-   * The alternative to knock-out: nobody is ever removed, so nobody spends the
-   * evening spectating, and there is still a definite winner.
+   * There is only ever one deal. Play runs until every hand is empty, and the
+   * order people go out in is the finishing order.
    */
-  roundsToWin: number;
+  dealOnce: true;
   /** Must a stacked draw card also match the active colour? Official: no. */
   stackRequiresColorMatch: boolean;
   /** Who names the colour when Color Roulette resolves. */
@@ -98,8 +97,14 @@ export interface PlayerState {
   hand: Card[];
   /** Eliminated players stay seated (as spectators) but never take a turn. */
   eliminated: boolean;
-  /** Rounds this player has gone out on. Cosmetic; no bearing on winning. */
-  roundsWon: number;
+  /**
+   * Finishing position, 1 for the first player to empty their hand.
+   *
+   * null while they are still playing. Emptying your hand ends YOUR game, not
+   * everyone's -- you keep your seat and watch while the rest play on for
+   * second, third and so on.
+   */
+  place: number | null;
   /**
    * They have pressed UNO while holding two cards.
    *
@@ -194,8 +199,8 @@ export type GameEvent =
   | { t: 'unoCalled'; playerId: string }
   | { t: 'unoPenalty'; playerId: string; count: number }
   | { t: 'eliminated'; playerId: string; handSize: number }
-  | { t: 'roundEnded'; winnerId: string }
-  /** Nobody could move and the deck was spent, so the round was re-dealt. */
+  | { t: 'playerFinished'; playerId: string; place: number }
+  /** Nobody could move and the deck was spent. */
   | { t: 'roundStalemate' }
   | { t: 'gameEnded'; winnerId: string }
   | { t: 'turnPassed'; playerId: string };

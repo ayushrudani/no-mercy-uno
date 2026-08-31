@@ -145,21 +145,24 @@ describe('playing a 7', () => {
 
   /**
    * The famous outcome: play your last card as a 7, take a full hand, and hand
-   * your empty one over. They go out, not you.
+   * your empty one over. They finish, not you.
    */
-  it('can hand the round to the person you swapped with', () => {
+  it('can hand first place to the person you swapped with', () => {
     const s = makeState({
-      hands: [[num('red', 7)], [num('blue', 2), num('blue', 3)], [num('green', 9)]],
+      hands: [[num('red', 7)], [num('blue', 2), num('blue', 3)], [num('green', 9), num('green', 4)]],
       top: num('red', 5),
       config: ON,
     });
     const mid = play(s, 0, handOf(s, 0)[0]!.id).state;
     expect(mid.phase.t).toBe('awaitingSwapTarget');
-    // Not out yet -- the swap has to resolve first.
-    expect(mid.winnerId).toBeNull();
+    // Not placed yet -- the swap has to resolve first.
+    expect(mid.players[0]!.place).toBeNull();
 
-    const { events } = reduce(mid, { t: 'chooseSwapTarget', playerId: 'p0', targetId: 'p1' });
-    expect(events).toContainEqual({ t: 'roundEnded', winnerId: 'p1' });
+    const { state, events } = reduce(mid, { t: 'chooseSwapTarget', playerId: 'p0', targetId: 'p1' });
+    expect(events).toContainEqual({ t: 'playerFinished', playerId: 'p1', place: 1 });
+    expect(state.players[1]!.place).toBe(1);
+    // p0 took their two cards, so p0 is still in it.
+    expect(state.players[0]!.place).toBeNull();
   });
 
   it('auto-picks the smallest hand on timeout', () => {

@@ -170,13 +170,17 @@ describe('Discard All', () => {
     expect(state.activeColor).toBe('red');
   });
 
-  it('can win the round outright', () => {
+  it('can take first place outright', () => {
     const s = makeState({
-      hands: [[discardAll('red'), num('red', 1)], [num('red', 1)], [num('green', 1)]],
+      hands: [
+        [discardAll('red'), num('red', 1)],
+        [num('red', 1), num('red', 8)],
+        [num('green', 1), num('green', 9)],
+      ],
       top: num('red', 5),
     });
     const { events } = play(s, 0, handOf(s, 0)[0]!.id);
-    expect(events).toContainEqual({ t: 'roundEnded', winnerId: 'p0' });
+    expect(events).toContainEqual({ t: 'playerFinished', playerId: 'p0', place: 1 });
   });
 });
 
@@ -349,6 +353,7 @@ describe('elimination at 25 cards', () => {
       pendingDraw: 6,
       pendingTier: 6,
       drawPile: fillerPile(40),
+      config: { eliminationAt: 25 },
     });
     const { state, events } = drawAct(s, 1);
     expect(state.players[1]!.eliminated).toBe(true);
@@ -365,6 +370,7 @@ describe('elimination at 25 cards', () => {
       pendingDraw: 2,
       pendingTier: 2,
       drawPile: fillerPile(10),
+      config: { eliminationAt: 25 },
     });
     const { state, events } = drawAct(s, 1);
     expect(state.phase.t).toBe('gameOver');
@@ -384,19 +390,17 @@ describe('elimination at 25 cards', () => {
 });
 
 describe('rounds', () => {
-  it('deals a fresh round when someone goes out, keeping survivors in', () => {
+  it('places the player who goes out and leaves everyone else mid-hand', () => {
     const s = makeState({
-      hands: [[num('red', 1)], [num('blue', 2)], [num('green', 3)]],
+      hands: [[num('red', 1)], [num('blue', 2), num('blue', 8)], [num('green', 3), num('green', 9)]],
       top: num('red', 5),
     });
     const { state, events } = play(s, 0, handOf(s, 0)[0]!.id);
-    expect(events).toContainEqual({ t: 'roundEnded', winnerId: 'p0' });
-    expect(state.round).toBe(2);
-    for (const p of state.players) expect(p.hand).toHaveLength(7);
-    expect(state.players[0]!.roundsWon).toBe(1);
-    expect(state.turnIndex).toBe(0);
-    expect(state.pendingDraw).toBe(0);
-    expect(state.direction).toBe(1);
+    expect(events).toContainEqual({ t: 'playerFinished', playerId: 'p0', place: 1 });
+    // One deal only: the survivors keep the cards they were holding.
+    expect(state.round).toBe(1);
+    expect(handOf(state, 1)).toHaveLength(2);
+    expect(handOf(state, 2)).toHaveLength(2);
   });
 });
 

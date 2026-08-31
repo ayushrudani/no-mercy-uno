@@ -1,34 +1,19 @@
 /**
- * Two token flows, both handled by `jose` -- no extra dependency needed.
+ * Our own session tokens, signed with `jose`.
  *
- * 1. Inbound: verify a Google ID token against Google's published JWKS.
- *    We do this ourselves rather than pulling in google-auth-library, which
- *    would add a large dependency to repeat what jose already does.
- * 2. Outbound: mint our own short session JWT. The browser holds it and
- *    presents it on every socket connection, which is what makes reconnecting
- *    to your seat mid-game work.
+ * The browser holds the token and presents it on every socket connection,
+ * which is what makes reconnecting to your seat mid-game work.
+ *
+ * Tokens carry a scope, and that scope is the whole enforcement mechanism
+ * behind the forced first password change. A brand-new account can only ever
+ * be issued a `reset` token: it proves who you are and authorises exactly one
+ * route -- setting a new password. Everything else, including the socket
+ * handshake, demands a `session` token. There is no flag to forget to check
+ * on some future route, because a reset token simply is not a session.
  */
 
-import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload } from 'jose';
+import { jwtVerify, SignJWT } from 'jose';
 import { env } from '../env.js';
-
-const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
-const GOOGLE_JWKS_URL = new URL('https://www.googleapis.com/oauth2/v3/certs');
-
-// Cached across calls: the set refreshes its keys on its own schedule, and
-// rebuilding it per login would refetch Google's certs every time.
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-function googleKeys() {
-  jwks ??= createRemoteJWKSet(GOOGLE_JWKS_URL);
-  return jwks;
-}
-
-export interface GoogleIdentity {
-  sub: string;
-  email: string;
-  name: string;
-  picture: string | null;
-}
 
 export class AuthError extends Error {
   constructor(message: string) {
@@ -37,42 +22,13 @@ export class AuthError extends Error {
   }
 }
 
-/** Verify a Google ID token and extract the identity we care about. */
-export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdentity> {
-  let payload: JWTPayload;
-  try {
-    const result = await jwtVerify(idToken, googleKeys(), {
-      issuer: GOOGLE_ISSUERS,
-      audience: env().GOOGLE_CLIENT_ID,
-    });
-    payload = result.payload;
-  } catch (err) {
-    throw new AuthError(`Google token rejected: ${(err as Error).message}`);
-  }
-
-  const sub = typeof payload['sub'] === 'string' ? payload['sub'] : null;
-  const email = typeof payload['email'] === 'string' ? payload['email'] : null;
-  if (!sub || !email) throw new AuthError('Google token is missing sub or email');
-
-  // An unverified email would let someone claim an address they do not own.
-  if (payload['email_verified'] === false) {
-    throw new AuthError('Google account email is not verified');
-  }
-
-  const name = typeof payload['name'] === 'string' && payload['name'].trim()
-    ? payload['name'].trim()
-    : email.split('@')[0]!;
-  const picture = typeof payload['picture'] === 'string' ? payload['picture'] : null;
-
-  return { sub, email, name, picture };
-}
-
-// ---------------------------------------------------------------------------
-// Our own session tokens
-// ---------------------------------------------------------------------------
-
 const ISSUER = 'no-mercy-uno';
 const AUDIENCE = 'no-mercy-uno-client';
+
+/** A reset token is deliberately short-lived; it is a one-errand credential. */
+const RESET_TTL = '20m';
+
+export type TokenScope = 'session' | 'reset';
 
 function secret(): Uint8Array {
   return new TextEncoder().encode(env().SESSION_SECRET);
@@ -80,16 +36,20 @@ function secret(): Uint8Array {
 
 export interface Session {
   userId: string;
+  scope: TokenScope;
 }
 
-export async function signSession(userId: string): Promise<string> {
-  return new SignJWT({})
+export async function signSession(
+  userId: string,
+  scope: TokenScope = 'session',
+): Promise<string> {
+  return new SignJWT({ scope })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
     .setIssuedAt()
-    .setExpirationTime(`${env().SESSION_TTL_DAYS}d`)
+    .setExpirationTime(scope === 'reset' ? RESET_TTL : `${env().SESSION_TTL_DAYS}d`)
     .sign(secret());
 }
 
@@ -100,7 +60,10 @@ export async function verifySession(token: string): Promise<Session> {
       audience: AUDIENCE,
     });
     if (typeof payload.sub !== 'string') throw new Error('missing subject');
-    return { userId: payload.sub };
+    // Tokens minted before scopes existed have none; treat them as full
+    // sessions so an upgrade does not sign everybody out mid-game.
+    const scope = payload['scope'] === 'reset' ? 'reset' : 'session';
+    return { userId: payload.sub, scope };
   } catch (err) {
     throw new AuthError(`session token rejected: ${(err as Error).message}`);
   }
