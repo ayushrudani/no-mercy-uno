@@ -12,8 +12,14 @@ const schema = z.object({
 
   DATABASE_URL: z.string().min(1).default('file:./dev.db'),
 
-  /** OAuth client id from Google Cloud Console; also the ID-token audience. */
-  GOOGLE_CLIENT_ID: z.string().min(1),
+  /**
+   * OAuth client id from Google Cloud Console; also the ID-token audience.
+   *
+   * Optional. Left empty, the Google button simply does not render and the
+   * only way in is the development sign-in -- which is the right trade for a
+   * private game among friends who do not want to set up OAuth.
+   */
+  GOOGLE_CLIENT_ID: z.string().default(''),
 
   /** Signing key for our own session tokens. Must be >= 32 chars. */
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),

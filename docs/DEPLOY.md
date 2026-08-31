@@ -3,6 +3,10 @@
 Target: `uno.bunkcode.online` on an Ubuntu Lightsail instance you already run
 with PM2 and nginx. No Docker.
 
+> **Just want it running?** [QUICKSTART.md](QUICKSTART.md) is one script plus an
+> nginx block. It skips Google sign-in, HTTPS and voice. Come back here when you
+> want those.
+
 Three processes end up on the box:
 
 ```
@@ -56,6 +60,26 @@ http://localhost:5173      (development only)
 ```
 
 Copy the client ID into `GOOGLE_CLIENT_ID`.
+
+---
+
+## 3b. Swap (do this before the first build)
+
+A 2 GB Lightsail instance has no swap by default, and both `pnpm install` and
+the Vite build will push it over. The symptom is a bare `Killed` with no other
+output — that is the kernel OOM killer, not a broken command.
+
+```sh
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h        # confirm the swap line is non-zero
+```
+
+Builds are slower with swap than with real memory, but they finish. This is a
+one-off; the running server needs well under 200 MB.
 
 ---
 
@@ -277,6 +301,8 @@ server is writing.
 
 | Symptom | Likely cause |
 |---|---|
+| `Killed` during install or build, no other output | Out of memory. Add swap — see step 3b. |
+| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | The lockfile contains a package published within the policy window. See below. |
 | Page loads, but the game never starts | Websocket blocked. Check the `location /socket.io/` block is present and `nginx -t` passes. |
 | Everyone disconnects ~60s after going quiet | `proxy_read_timeout` reverted to the default. |
 | Players in one room cannot see each other | PM2 running more than one instance. `pm2 describe no-mercy-uno` and check `instances`. |
@@ -284,6 +310,44 @@ server is writing.
 | Voice connects for some people, not others | TURN. Check the secret matches and the UDP range is open in the **Lightsail** firewall. |
 | `/api/auth/dev` returns a token | `NODE_ENV` is not `production`. Fix immediately — it is passwordless sign-in as anyone. |
 | Server restart-loops on boot | Bad `.env`. `pm2 logs no-mercy-uno` shows the validation error; the process refuses to start rather than run misconfigured. |
+
+---
+
+## When pnpm rejects the lockfile
+
+```
+ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION
+  <pkg>@<version> was published at ..., within the minimumReleaseAge cutoff
+```
+
+pnpm refuses packages published too recently — a supply-chain guard against a
+freshly compromised release. It fires when a lockfile is generated on a dev
+machine the same day one of its transitive dependencies shipped.
+
+The repo guards against this in two ways:
+
+- `pnpm-workspace.yaml` sets `minimumReleaseAge: 1440`, so the policy is
+  declared in the repo rather than only on the server.
+- `package.json` pins `electron-to-chromium` through `pnpm.overrides`. It is a
+  build-time data table pulled in by `browserslist` (via Vite) that publishes
+  several times a week, which makes it the most likely package to trip this.
+
+**If it happens again with a different package**, in order of preference:
+
+1. Pin it. Find a version old enough and add it to `pnpm.overrides` in
+   `package.json`, regenerate the lockfile locally, commit, and redeploy. This
+   keeps `--frozen-lockfile` meaningful.
+2. Wait. The cutoff is a rolling window, so the same lockfile passes tomorrow.
+3. Last resort, on the server only:
+   ```sh
+   pnpm install --frozen-lockfile --config.minimumReleaseAge=0
+   ```
+   This bypasses the guard. Only do it when you know what the package is and
+   why it is new.
+
+Do **not** fix it by running `pnpm install` without `--frozen-lockfile` on the
+server. That rewrites the lockfile on the box, so what you deploy stops
+matching what you tested.
 
 ---
 

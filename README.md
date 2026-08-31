@@ -4,8 +4,9 @@ Multiplayer **UNO Show 'Em No Mercy** for a friend group spread across cities.
 Google sign-in, password-protected rooms, live voice chat, phone-first and
 landscape.
 
+- [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — **get it running behind nginx in one script**
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — the full setup: Google sign-in, HTTPS, working voice
 - [`docs/PLAN.md`](docs/PLAN.md) — architecture, rules, and what is done
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — deploying to Lightsail with PM2 + nginx
 
 ---
 
@@ -88,6 +89,3 @@ working:
    negotiation logic are tested; the audio path is not.
 2. **The deployment.** The nginx, PM2 and coturn configs are written and pass
    `pnpm preflight`, but have never run on the actual box.
-"# no-mercy-uno" 
-"# no-mercy-uno" 
-"# no-mercy-uno" 

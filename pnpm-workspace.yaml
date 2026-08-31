@@ -1,3 +1,12 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+
+# Supply-chain policy.
+#
+# Reject any package published within the last day. The server enforces this,
+# and without the same setting here a lockfile generated on a dev machine can
+# contain a package that is hours old -- which then fails `--frozen-lockfile`
+# on deploy with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION. Keeping the policy in
+# the repo means the lockfile is always deployable.
+minimumReleaseAge: 1440

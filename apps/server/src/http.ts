@@ -80,6 +80,9 @@ export async function buildHttpServer(deps: HttpDeps): Promise<FastifyInstance> 
    * the body because the socket handshake needs to send it explicitly.
    */
   app.post('/api/auth/google', async (req, reply) => {
+    if (!config.GOOGLE_CLIENT_ID) {
+      throw new AuthError('Google sign-in is not configured on this server');
+    }
     const { idToken } = googleLoginSchema.parse(req.body);
     const identity = await verifyGoogleIdToken(idToken);
     const user = await upsertUserFromGoogle(identity);
