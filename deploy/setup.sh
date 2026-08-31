@@ -53,8 +53,24 @@ ok "client -> apps/web/dist (the server serves these files)"
 say "Configuration"
 ENV_FILE="$ROOT/apps/server/.env"
 
+# Work out how the browser will address this box. On Lightsail the instance
+# only knows its private IP, so ask the metadata service (and fall back to a
+# public echo) for the address people will actually type.
+PUBLIC_IP="$(curl -fsS -m 5 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)"
+[ -n "$PUBLIC_IP" ] || PUBLIC_IP="$(curl -fsS -m 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)"
+[ -n "$PUBLIC_IP" ] || PUBLIC_IP="$(hostname -I | awk '{print $1}')"
+SITE_URL="http://$PUBLIC_IP"
+ok "this box looks like $SITE_URL"
+
 if [ -f "$ENV_FILE" ]; then
   ok ".env already exists, leaving it alone"
+  # One exception: if CORS_ORIGINS is still the placeholder we wrote, point it
+  # at this box. Getting it wrong means every API call is refused, and it is
+  # the single most likely thing to be left unedited.
+  if grep -q '^CORS_ORIGINS=http://localhost:3000$' "$ENV_FILE"; then
+    sed -i "s|^CORS_ORIGINS=http://localhost:3000$|CORS_ORIGINS=$SITE_URL|" "$ENV_FILE"
+    ok "updated CORS_ORIGINS to $SITE_URL"
+  fi
 else
   SECRET="$(openssl rand -base64 48 | tr -d '\n')"
   cat > "$ENV_FILE" <<EOF
@@ -73,8 +89,8 @@ WEB_DIST=$ROOT/apps/web/dist
 
 SESSION_SECRET=$SECRET
 
-# Set this to the address you actually type in the browser.
-CORS_ORIGINS=http://localhost:3000
+# The address the browser uses. Detected from this instance.
+CORS_ORIGINS=$SITE_URL
 
 # Leave empty to hide the Google button entirely.
 GOOGLE_CLIENT_ID=
@@ -120,30 +136,19 @@ else
 fi
 
 # --- 5. nginx ---------------------------------------------------------------
-cat <<'NGINX'
+say "Last step: nginx"
+cat <<EOF
 
-==> Last step: nginx
+Install the site config and reload:
 
-Paste this into your nginx config (a new server block, or swap the location
-into an existing one), then reload:
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 24h;
-        proxy_buffering off;
-    }
-
+    sudo cp deploy/nginx.conf /etc/nginx/sites-available/no-mercy-uno
+    sudo ln -sf /etc/nginx/sites-available/no-mercy-uno /etc/nginx/sites-enabled/
     sudo nginx -t && sudo systemctl reload nginx
 
-The Upgrade/Connection lines and the long timeout are not optional -- without
-them the websocket never connects, or everyone is dropped 60 seconds after the
-table goes quiet.
+Then open:  $SITE_URL
 
-Then set CORS_ORIGINS in apps/server/.env to the address you actually open in
-the browser (e.g. http://uno.bunkcode.online) and run: pm2 restart no-mercy-uno
+The shipped config already has server_name $PUBLIC_IP. If you put a domain on
+this later, change that line and run certbot -- HTTPS is what makes voice chat
+possible, since browsers refuse the microphone on a plain http:// origin.
 
-NGINX
+EOF

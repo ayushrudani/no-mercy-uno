@@ -2,6 +2,10 @@
 
 Ubuntu box with nginx and PM2 already on it. One script, one nginx block.
 
+Currently deployed against the instance's static IP, **http://13.232.9.123** —
+no domain, no certificate. See [Adding a domain](#optional-adding-a-domain) for
+what that unlocks.
+
 ---
 
 ## 1. Run the setup script
@@ -18,45 +22,37 @@ starts the server under PM2 on **127.0.0.1:3000**.
 
 Safe to re-run. It never overwrites an existing `.env`.
 
-## 2. Point nginx at port 3000
-
-Add this to your site config:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_read_timeout 24h;
-    proxy_buffering off;
-}
-```
+## 2. Install the nginx site
 
 ```sh
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/no-mercy-uno
+sudo ln -sf /etc/nginx/sites-available/no-mercy-uno /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-**The four lines after `proxy_pass` are the ones that matter.** Without
-`Upgrade`/`Connection` the websocket never connects and the game never starts.
-Without the long `proxy_read_timeout`, nginx's 60-second default silently
-disconnects everyone a minute after the table goes quiet — which looks exactly
-like bad wifi.
+The shipped config already has `server_name 13.232.9.123`. If your IP differs,
+change that one line.
 
-## 3. Tell the app its address
+**The websocket block is the part that matters.** Without the
+`Upgrade`/`Connection` headers the game never starts; without the 24-hour
+`proxy_read_timeout`, nginx's 60-second default silently disconnects everyone
+a minute after the table goes quiet — which looks exactly like bad wifi.
 
-In `apps/server/.env`, set `CORS_ORIGINS` to whatever you type in the browser:
+## 3. Open it
 
-```sh
-CORS_ORIGINS=http://uno.bunkcode.online
-```
+**http://13.232.9.123**
 
-```sh
-pm2 restart no-mercy-uno
-```
+Type a name, create a room, share the code and the link.
 
-Open the site, type a name, create a room, share the code.
+`CORS_ORIGINS` is set for you — the setup script asks the instance metadata
+service for its own public IP and writes it into `.env`. If you ever move the
+box or change the IP, re-run the script.
+
+### Firewall
+
+Open **port 80 (TCP)** in the Lightsail networking tab. That is the only port
+the browser needs; the Node process stays on `127.0.0.1:3000` where only nginx
+can reach it.
 
 ---
 
@@ -88,39 +84,50 @@ have to set up Google OAuth. There is no password. Fine for a link you send
 five friends; not fine if it spreads.
 
 **Voice chat will not work.** Browsers refuse microphone access on a plain
-`http://` origin. That is a browser rule, not something the app can opt out of.
-Cards, chat and reactions all work.
+`http://` origin, and you cannot get a certificate for a bare IP — a public CA
+will only issue for a domain. That is a browser and CA rule, not something the
+app can opt out of. Cards, chat and reactions all work.
 
 **Games are lost on restart.** Rooms live in memory. Deploy between games, not
 during one. Match history in SQLite survives.
 
-The next section fixes the first two.
+A domain fixes the first two. See below.
 
 ---
 
-## Optional: HTTPS, Google sign-in, voice
+## Optional: adding a domain
 
-Do these when you want them. Nothing above changes.
+Everything above keeps working. A domain buys you HTTPS, which buys you voice
+chat and Google sign-in — none of which are possible on a bare IP.
 
 ### HTTPS
 
+Point an A record at `13.232.9.123`, then:
+
 ```sh
+sudo sed -i 's/server_name 13.232.9.123;/server_name your.domain;/' /etc/nginx/sites-available/no-mercy-uno
+sudo nginx -t && sudo systemctl reload nginx
+
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d uno.bunkcode.online
+sudo certbot --nginx -d your.domain
 ```
 
-certbot edits your nginx config and sets up renewal. Then update
-`CORS_ORIGINS` to the `https://` address and `pm2 restart no-mercy-uno`.
+certbot rewrites the config for TLS and sets up renewal. Then set
+`CORS_ORIGINS=https://your.domain` in `apps/server/.env` and
+`pm2 restart no-mercy-uno`.
 
 This alone makes voice possible — the microphone works on a secure origin.
 
 ### Google sign-in
 
+Needs the domain from the previous step: Google will not accept a raw IP as an
+authorised origin.
+
 Google Cloud Console → APIs & Services → Credentials → **OAuth 2.0 Client ID**
 (Web application). Authorised JavaScript origins:
 
 ```
-https://uno.bunkcode.online
+https://your.domain
 ```
 
 Put the id in `apps/server/.env`:
@@ -132,7 +139,7 @@ NODE_ENV=production
 
 `NODE_ENV=production` removes the name-only sign-in route entirely — the
 handler is never registered, so it cannot be re-enabled by a stray variable.
-Restart, then check `curl https://uno.bunkcode.online/api/auth/dev` returns
+Restart, then check `curl https://your.domain/api/auth/dev` returns
 **404**.
 
 ### Voice across different networks
@@ -162,7 +169,7 @@ sudo systemctl enable --now coturn
 Add the same secret to `apps/server/.env`:
 
 ```sh
-TURN_URLS=turn:uno.bunkcode.online:3478
+TURN_URLS=turn:your.domain:3478
 TURN_SECRET=<the same value>
 ```
 
@@ -176,7 +183,7 @@ Open in the **Lightsail networking tab** (not just `ufw`): TCP+UDP 3478, and
 TURN accepts the handshake and then relays nothing.
 
 Check it with `pnpm preflight`, then confirm
-`https://uno.bunkcode.online/api/voice/ice` shows `"hasTurn": true`. During a
+`https://your.domain/api/voice/ice` shows `"hasTurn": true`. During a
 call, `chrome://webrtc-internals` should show a candidate of type **`relay`**.
 
 ---
