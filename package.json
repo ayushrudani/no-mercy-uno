@@ -1,0 +1,22 @@
+{
+  "name": "no-mercy-uno",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "dev": "pnpm --parallel --filter @nmu/server --filter @nmu/web dev",
+    "db:push": "pnpm --filter @nmu/server db:push",
+    "preflight": "node deploy/preflight.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

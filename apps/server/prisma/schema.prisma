@@ -1,0 +1,71 @@
+// Persistence for accounts, profile settings and match history.
+//
+// SQLite rather than Postgres: this serves one friend group on a single box,
+// and reads/writes are tiny and infrequent. It removes a container from the
+// Lightsail deployment and makes backups "copy one file". Prisma keeps the
+// door open -- moving to Postgres later is a provider swap plus a migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String @id @default(cuid())
+  // Google's stable subject claim. Email can change; this cannot.
+  googleSub String @unique
+  email     String @unique
+
+  displayName String
+  avatarUrl   String?
+
+  // Profile settings, mirrored into the client on login.
+  cardBack             String  @default("classic")
+  sfxVolume            Int     @default(70)
+  micDefaultOn         Boolean @default(true)
+  preferredTurnSeconds Int     @default(30)
+
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  matches MatchPlayer[]
+
+  @@index([lastSeenAt])
+}
+
+model Match {
+  id       String @id @default(cuid())
+  roomCode String
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  rounds    Int       @default(0)
+  winnerId  String?
+
+  players MatchPlayer[]
+
+  @@index([roomCode])
+  @@index([startedAt])
+}
+
+model MatchPlayer {
+  id String @id @default(cuid())
+
+  matchId String
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  seat      Int
+  roundsWon Int  @default(0)
+  /// 1 = won the game. Higher numbers were eliminated earlier.
+  finalPlace Int?
+
+  @@unique([matchId, userId])
+  @@index([userId])
+}
