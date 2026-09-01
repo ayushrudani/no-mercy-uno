@@ -64,6 +64,9 @@ export function makeState(spec: StateSpec): GameState {
     players,
     turnIndex: spec.turnIndex ?? 0,
     direction: spec.direction ?? 1,
+    // Fixtures play with one deck unless a test says otherwise; the seat count
+    // here is set by the test, not by a real table.
+    decksInPlay: 1,
     drawPile: spec.drawPile ?? buildDeck(),
     discardPile: [spec.top],
     activeColor,

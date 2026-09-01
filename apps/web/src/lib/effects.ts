@@ -100,6 +100,20 @@ export function effectFor(e: GameEvent, myId: string, nameOf: (id: string) => st
     case 'reshuffled':
       return { sound: 'shuffle', moment: null };
 
+    /**
+     * The cards ran out and another deck joined the game. Worth saying out
+     * loud: the alternative reading is that something went wrong.
+     */
+    case 'deckExtended':
+      return {
+        sound: 'shuffle',
+        moment: {
+          text: 'New deck shuffled in',
+          sub: `${e.decks} decks in play`,
+          tone: 'neutral',
+        },
+      };
+
     case 'handsSwapped': {
       const mine = e.playerId === myId;
       const theirs = e.targetId === myId;

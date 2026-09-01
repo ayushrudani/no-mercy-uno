@@ -136,6 +136,13 @@ export interface GameState {
   turnIndex: number;
   /** +1 clockwise, -1 counter-clockwise. */
   direction: 1 | -1;
+  /**
+   * How many decks are in circulation.
+   *
+   * Starts from the player count and grows when the cards run out. Also the id
+   * space for the next deck added, so no two cards can ever share an id.
+   */
+  decksInPlay: number;
   drawPile: Card[];
   /** Last element is the visible top card. */
   discardPile: Card[];
@@ -200,6 +207,8 @@ export type GameEvent =
   | { t: 'unoPenalty'; playerId: string; count: number }
   | { t: 'eliminated'; playerId: string; handSize: number }
   | { t: 'playerFinished'; playerId: string; place: number }
+  /** The cards ran out, so another deck was shuffled in. */
+  | { t: 'deckExtended'; decks: number; added: number }
   /** Nobody could move and the deck was spent. */
   | { t: 'roundStalemate' }
   | { t: 'gameEnded'; winnerId: string }

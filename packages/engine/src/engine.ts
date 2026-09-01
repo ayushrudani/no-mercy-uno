@@ -7,7 +7,7 @@
  * caller's state object is never touched.
  */
 
-import { buildDeck } from './deck.js';
+import { buildDeck, buildDecks, decksForPlayers, DECK_SIZE } from './deck.js';
 import { DEFAULT_CONFIG, MAX_PLAYERS, MIN_PLAYERS } from './config.js';
 import { shuffle } from './rng.js';
 import {
@@ -124,9 +124,48 @@ function reshuffle(s: GameState, events: GameEvent[]): void {
   events.push({ t: 'reshuffled', count: recycled.length });
 }
 
-/** Pop one card, recycling the discard pile if the draw pile has run dry. */
+/**
+ * Paranoia bound on how far the pool may grow.
+ *
+ * Reaching it means every one of 1344 cards is sitting in somebody's hand,
+ * which cannot happen in a real game. It exists so a bug upstream cannot turn
+ * "add another deck" into an unbounded loop.
+ */
+const MAX_DECKS = 8;
+
+/**
+ * Shuffle a brand new deck into the draw pile.
+ *
+ * This is what happens when the cards run out, and it replaces re-dealing the
+ * whole table. Re-dealing was correct in the sense that it unwedged the game,
+ * but from a seat it was indistinguishable from the game restarting itself --
+ * with eight players that was happening every few minutes.
+ *
+ * The new deck gets its own id space, so nothing collides with the cards
+ * already in play.
+ */
+function extendDeck(s: GameState, events: GameEvent[]): boolean {
+  if (s.decksInPlay >= MAX_DECKS) return false;
+
+  const fresh = buildDeck(s.decksInPlay);
+  s.decksInPlay += 1;
+  const res = shuffle([...s.drawPile, ...fresh], s.rngState);
+  s.drawPile = res.items;
+  s.rngState = res.state;
+  events.push({ t: 'deckExtended', decks: s.decksInPlay, added: fresh.length });
+  return true;
+}
+
+/**
+ * Pop one card, recycling the discard pile if the draw pile has run dry, and
+ * adding a deck if there was nothing to recycle either.
+ *
+ * With the extension in place this effectively always returns a card, which is
+ * what lets every caller stop worrying about the exhausted case.
+ */
 function drawOne(s: GameState, events: GameEvent[]): Card | null {
   if (s.drawPile.length === 0) reshuffle(s, events);
+  if (s.drawPile.length === 0) extendDeck(s, events);
   return s.drawPile.pop() ?? null;
 }
 
@@ -169,7 +208,10 @@ function syncUnoFlag(player: PlayerState): void {
  */
 function drawUntilColor(s: GameState, seat: number, color: Color, events: GameEvent[]): number {
   const player = s.players[seat]!;
-  const ceiling = s.drawPile.length + s.discardPile.length;
+  // Counts a possible fresh deck, not just the cards visible right now. The
+  // pool can grow mid-loop, and a ceiling measured beforehand would cut the
+  // roulette short of the colour it is supposed to find.
+  const ceiling = s.drawPile.length + s.discardPile.length + DECK_SIZE;
   let drawn = 0;
   for (let i = 0; i < ceiling; i++) {
     const card = drawOne(s, events);
@@ -178,6 +220,11 @@ function drawUntilColor(s: GameState, seat: number, color: Color, events: GameEv
     drawn++;
     if (isColored(card) && card.color === color) break;
   }
+  // This site pushes into the hand directly instead of going through
+  // giveCards, so it has to drop a standing UNO call itself. Missing it meant
+  // someone who called at two cards and then drew six on a roulette still
+  // counted as having called, which would excuse their next failure to call.
+  syncUnoFlag(player);
   return drawn;
 }
 
@@ -341,7 +388,8 @@ export function createGame(
     players,
     turnIndex: 0,
     direction: 1,
-    drawPile: buildDeck(),
+    decksInPlay: decksForPlayers(players.length),
+    drawPile: buildDecks(decksForPlayers(players.length)),
     discardPile: [],
     activeColor: 'red',
     pendingDraw: 0,
@@ -691,7 +739,7 @@ function applyDraw(s: GameState, playerId: string, events: GameEvent[]): void {
     const count = s.pendingDraw;
     const given = giveCards(s, seat, count, events);
 
-    // Same exhaustion case as below: nothing left to hand out.
+    // Only reachable at the MAX_DECKS ceiling, which a real game cannot hit.
     if (given === 0) {
       s.pendingDraw = 0;
       s.pendingTier = 0;
@@ -713,15 +761,12 @@ function applyDraw(s: GameState, playerId: string, events: GameEvent[]): void {
   const given = giveCards(s, seat, 1, events);
 
   /**
-   * A draw that yields nothing means every card is in somebody's hand: the
-   * draw pile is empty and the discard pile is down to its top card, so there
-   * is nothing left to recycle.
+   * Last-resort valve, and no longer the normal exhaustion path.
    *
-   * With knock-out enabled this cannot really happen -- players are removed at
-   * 25 cards and their hands go back into circulation. With it disabled hands
-   * grow without bound, and the table can reach a state where nobody can play
-   * and nobody can draw. Re-deal instead of leaving the game wedged. Nobody
-   * went out, so nobody is credited a round.
+   * Running out of cards now shuffles in another deck (see `extendDeck`), so
+   * this only fires once MAX_DECKS have been added and all 1344 cards are in
+   * hands -- which cannot happen in a real game. It stays because a wedged
+   * table would be worse than a surprising re-deal.
    */
   if (given === 0) {
     events.push({ t: 'roundStalemate' });

@@ -18,14 +18,17 @@ import { ChatDrawer, FloatingReactions, ReactionBar } from '../components/Chat.j
 import { MomentBanner } from '../components/Moment.js';
 import { speakingRing, VoiceControls } from '../components/Voice.js';
 import {
-  ColorPicker,
+  ColorWheel,
+  DirectionRing,
   FullscreenButton,
   HandRail,
   HandSortToggle,
   NetworkPill,
+  NextUp,
   Piles,
   Seat,
   SwapPicker,
+  TableCenter,
   UnoButton,
   TurnRing,
   useCountdown,
@@ -33,6 +36,7 @@ import {
 import { useGameEffects, useTurnChime } from '../lib/effects.js';
 import { turnActions } from '../lib/turn.js';
 import { isHandSort, sortHand, type HandSort } from '../lib/hand.js';
+import { nextPlayerId } from '../lib/turnorder.js';
 import { sound } from '../lib/sound.js';
 import { nameOf, selectIsHost, useStore } from '../lib/store.js';
 import { api, type Profile } from '../lib/api.js';
@@ -117,6 +121,9 @@ export function Table({
 
   const myCards = useMemo(() => sortHand(me?.hand ?? [], handSort), [me?.hand, handSort]);
 
+  /** Who acts after the current player, if the card played does not change it. */
+  const nextId = useMemo(() => nextPlayerId(view), [view]);
+
   // All action gating lives in one tested place: these checks got it wrong once
   // by looking at the table-wide phase without asking whose turn it is.
   const {
@@ -181,7 +188,10 @@ export function Table({
     run(() => play(card.id));
   };
 
-  const nearElimination = (me?.hand.length ?? 0) >= 20;
+  const knockoutAt = room.settings.rules.eliminationAt ?? 0;
+  // Only a warning when there is something to be knocked out of; 80% of the way
+  // to the limit rather than a hardcoded 20.
+  const nearElimination = knockoutAt > 0 && (me?.hand.length ?? 0) >= knockoutAt * 0.8;
 
   // Your finishing place, once you have gone out.
   const myPlace = me?.place ?? null;
@@ -269,11 +279,21 @@ export function Table({
           </div>
         </div>
 
-        {/* --- opponents --------------------------------------------------- */}
+        {/* --- the table ---------------------------------------------------
+            Seats and piles share one bounded surface. Previously each band took
+            its own slice of the viewport and the piles band absorbed every
+            leftover pixel, which on a desktop left the game as a thin strip of
+            content in a very large empty field. */}
+        <div className="flex min-h-0 flex-1 items-center justify-center px-2 py-2 sm:px-4">
+        {/* Hugs its contents and sits centred, rather than stretching to fill.
+            Stretching left the seats pinned to the top edge and the piles
+            marooned in the middle of a mostly empty rectangle. */}
+        <div className="table-surface relative flex max-h-full w-full max-w-4xl flex-col items-center justify-center gap-3 overflow-hidden px-3 py-5">
+
         {/* Wraps: eight seats do not fit one row on a phone, and a horizontal
             scroll for opponents would hide half the table. */}
         <div
-          className="flex shrink-0 flex-wrap items-start justify-center gap-x-4 gap-y-1 px-3 pt-2"
+          className="flex shrink-0 flex-wrap items-start justify-center gap-x-4 gap-y-1 px-3"
         >
           {opponents.map((p) => (
             <Seat
@@ -281,6 +301,7 @@ export function Table({
               player={p}
               member={room.members.find((m) => m.id === p.id)}
               isTurn={view.turnPlayerId === p.id}
+              isNext={nextId === p.id}
               seconds={seconds}
               turnTotal={turnTotal}
               level={levels[p.id] ?? 0}
@@ -289,7 +310,9 @@ export function Table({
         </div>
 
         {/* --- piles ------------------------------------------------------- */}
-        <div className="flex min-h-0 flex-1 items-center justify-center py-1">
+        <div className="relative flex min-h-0 shrink flex-col items-center justify-center gap-1.5">
+          <DirectionRing direction={view.direction} />
+          <div className="relative z-10 flex items-center justify-center">
           <Piles
             top={view.top}
             activeColor={view.activeColor}
@@ -300,6 +323,13 @@ export function Table({
             onDraw={() => run(draw)}
             cardBack={isCardBackId(profile.cardBack) ? profile.cardBack : 'classic'}
           />
+          </div>
+          <div className="relative z-10">
+            <NextUp name={nextId ? nameFor(nextId) : null} />
+          </div>
+        </div>
+
+        </div>
         </div>
 
         {/* --- my hand -----------------------------------------------------
@@ -310,7 +340,7 @@ export function Table({
           <AnimatePresence>
             {canCallUno && <UnoButton onCall={() => run(callUno)} />}
           </AnimatePresence>
-          <div className="flex items-center justify-between px-3 pb-1">
+          <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-3 pb-1">
             <div className="flex items-center gap-2">
               <div className="relative">
                 <div
@@ -344,7 +374,9 @@ export function Table({
                   {...(nearElimination ? { transition: { repeat: Infinity, duration: 1.4 } } : {})}
                   className={`rounded-full px-2 py-0.5 text-[10px] ${nearElimination ? 'bg-red-500/20 font-bold text-red-300 ring-1 ring-red-400/40' : 'text-white/40'}`}
                 >
-                  {me.hand.length}/25
+                  {/* The denominator is the knock-out limit. Showing "/25" with
+                      knock-out off implied a cliff that is not there. */}
+                  {knockoutAt > 0 ? `${me.hand.length}/${knockoutAt}` : `${me.hand.length} cards`}
                 </motion.span>
               )}
               {me && me.hand.length > 1 && (
@@ -408,35 +440,45 @@ export function Table({
         <MomentBanner moment={moment} />
         <FloatingReactions reactions={reactions} nameOf={nameFor} />
 
-        {pendingWild && (
-          <ColorPicker
-            title="Choose a colour"
-            subtitle="It becomes the active colour."
-            onPick={(c: Color) => {
-              const card = pendingWild;
-              setPendingWild(null);
-              run(() => play(card.id, c));
-            }}
-            onCancel={() => setPendingWild(null)}
-          />
-        )}
+        {/* Every mid-turn decision lands in the same place -- the middle of the
+            table -- so there is one spot to look when the game asks something. */}
+        <AnimatePresence>
+          {pendingWild && (
+            <TableCenter key="wild">
+              <ColorWheel
+                title="Choose a colour"
+                subtitle="It becomes the active colour."
+                onPick={(c: Color) => {
+                  const card = pendingWild;
+                  setPendingWild(null);
+                  run(() => play(card.id, c));
+                }}
+                onCancel={() => setPendingWild(null)}
+              />
+            </TableCenter>
+          )}
 
-        {mustChooseSwapTarget && (
-          <SwapPicker
-            candidates={view.players.filter((p) => !p.eliminated && p.id !== profile.id).map((p) => p.id)}
-            nameOf={nameFor}
-            countOf={(id) => view.players.find((p) => p.id === id)?.cardCount ?? 0}
-            onPick={(id) => run(() => chooseSwapTarget(id))}
-          />
-        )}
+          {mustChooseSwapTarget && (
+            <TableCenter key="swap">
+              <SwapPicker
+                candidates={view.players.filter((p) => !p.eliminated && p.id !== profile.id).map((p) => p.id)}
+                nameOf={nameFor}
+                countOf={(id) => view.players.find((p) => p.id === id)?.cardCount ?? 0}
+                onPick={(id) => run(() => chooseSwapTarget(id))}
+              />
+            </TableCenter>
+          )}
 
-        {mustNameRouletteColor && (
-          <ColorPicker
-            title="Color Roulette"
-            subtitle="Name a colour. You draw until it turns up, and lose your turn."
-            onPick={(c: Color) => run(() => chooseRouletteColor(c))}
-          />
-        )}
+          {mustNameRouletteColor && (
+            <TableCenter key="roulette">
+              <ColorWheel
+                title="Color Roulette"
+                subtitle="Name a colour. You draw until it turns up, and lose your turn."
+                onPick={(c: Color) => run(() => chooseRouletteColor(c))}
+              />
+            </TableCenter>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {gameOver && (

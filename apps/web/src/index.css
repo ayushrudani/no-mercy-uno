@@ -148,6 +148,28 @@ body {
     radial-gradient(ellipse 90% 70% at 50% 42%, #1c3f34 0%, #122a24 45%, #0a1714 72%, #060d0c 100%);
 }
 
+/**
+ * The playing surface.
+ *
+ * A bounded, centred shape rather than letting the seats and piles float in the
+ * middle of the viewport. On a wide screen the old layout put a 44px avatar at
+ * the top, two cards in the middle and the hand at the bottom of a 1500px-wide
+ * field of green, with a couple of hundred pixels of nothing between each --
+ * the elements were all correct and the screen still read as empty.
+ *
+ * The rim and the inner shadow are what make it read as a table you are sitting
+ * at rather than a panel: light pooled in the centre, edges falling away.
+ */
+.table-surface {
+  background:
+    radial-gradient(ellipse 70% 80% at 50% 45%, rgb(255 255 255 / 0.055) 0%, rgb(255 255 255 / 0) 70%);
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 2rem;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.25) inset,
+    0 24px 60px -30px rgb(0 0 0 / 0.8);
+}
+
 /* Frosted panel used by every card-like surface outside the table. */
 .panel {
   background: color-mix(in oklab, var(--color-surface-2) 78%, transparent);

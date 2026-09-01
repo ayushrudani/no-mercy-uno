@@ -21,16 +21,50 @@ import { bestColorFor, isColored } from '../src/rules.js';
 import { rollInt } from '../src/rng.js';
 import type { Action, GameConfig, GameState } from '../src/types.js';
 
-const DECK_TOTAL = 168;
+const DECK_SIZE = 168;
 
 function cardCensus(s: GameState): number {
   return s.drawPile.length + s.discardPile.length + s.players.reduce((n, p) => n + p.hand.length, 0);
 }
 
-function assertInvariants(s: GameState, label: string): void {
-  expect(cardCensus(s), `${label}: cards conserved`).toBe(DECK_TOTAL);
-  expect(new Set([...s.drawPile, ...s.discardPile, ...s.players.flatMap((p) => p.hand)].map((c) => c.id)).size,
-    `${label}: no duplicated card ids`).toBe(DECK_TOTAL);
+/**
+ * Counter for sampling the expensive checks.
+ *
+ * The cheap ones run after every single action. Building a Set of every card id
+ * does not: it allocates an array the size of the whole pool each time, and
+ * with two decks in play and the longer games that come with them, doing it on
+ * every action took the suite from seconds to minutes.
+ *
+ * Sampling loses nothing that matters. A duplicated id or a lost card does not
+ * heal itself -- once the pool is wrong it stays wrong -- so the next sample
+ * catches it, and the final state is always checked in full.
+ */
+let actionsSeen = 0;
+const DEEP_CHECK_EVERY = 20;
+
+function assertInvariants(s: GameState, label: string, deep = false): void {
+  /**
+   * Conservation is now relative to how many decks are in play, not a fixed
+   * 168. A table of eight starts with two decks and shuffles in another
+   * whenever the cards run out, so the only thing that must hold is that the
+   * total is an exact multiple of a deck and matches the count the state
+   * claims -- cards still cannot appear or vanish between those points.
+   */
+  const expected = s.decksInPlay * DECK_SIZE;
+  expect(cardCensus(s), `${label}: cards conserved across ${s.decksInPlay} deck(s)`).toBe(expected);
+
+  const deepNow = deep || actionsSeen++ % DEEP_CHECK_EVERY === 0;
+
+  /**
+   * The reason each added deck gets its own id space. Two decks minting the
+   * same ids would leave two different cards answering to "red-5#3", and both
+   * "play this card" and the client's layoutId animation would target the
+   * wrong one.
+   */
+  if (deepNow) {
+    expect(new Set([...s.drawPile, ...s.discardPile, ...s.players.flatMap((p) => p.hand)].map((c) => c.id)).size,
+      `${label}: no duplicated card ids`).toBe(expected);
+  }
 
   for (const p of s.players) {
     if (s.config.eliminationAt > 0) {
@@ -132,7 +166,10 @@ function playGame(
 
   const cap = config.eliminationAt === 0 ? 1500 : 4000;
   for (let turn = 0; turn < cap; turn++) {
-    if (state.phase.t === 'gameOver') return { finished: true, turns: turn };
+    if (state.phase.t === 'gameOver') {
+      assertInvariants(state, `seed ${seed} final`, true);
+      return { finished: true, turns: turn };
+    }
     const action = randomAction(state, rng);
     const result = reduce(state, action);
     state = result.state;
@@ -146,11 +183,19 @@ function playGame(
 }
 
 /**
- * Games per seat count. The full sweep is slow (invariants are re-checked after
- * every single action), so the dev loop runs a smaller one and CI runs the lot:
+ * Games per seat count.
+ *
+ * Lowered from 40 when tables started playing with more than one deck. Each
+ * game now runs far longer -- there are more cards to get through before a hand
+ * empties -- so the same number of games took the suite from seconds to eight
+ * minutes, which is long enough that people stop running it.
+ *
+ * Fewer, longer games is not less coverage: the number of actions explored is
+ * what finds interaction bugs, and that went up rather than down. Turn it up
+ * for a thorough sweep:
  *   FUZZ_GAMES=200 pnpm test
  */
-const GAMES = Number(process.env['FUZZ_GAMES'] ?? 40);
+const GAMES = Number(process.env['FUZZ_GAMES'] ?? 12);
 
 describe('fuzz: random legal play never breaks an invariant', () => {
   for (const playerCount of [2, 3, 4, 6, 8]) {

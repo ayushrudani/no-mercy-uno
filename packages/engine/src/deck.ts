@@ -31,14 +31,34 @@ export const DECK_SIZE = 168;
 export const CARDS_PER_COLOR = 36;
 
 /**
+ * How many decks a table of this size plays with.
+ *
+ * One deck per four players. Eight people cannot share 168 cards in No Mercy:
+ * a single +10 into a +6 puts sixteen cards in one hand, and with knock-out off
+ * nobody is ever removed to give theirs back. The deck emptied every few
+ * minutes, and the only escape the engine had was to re-deal -- which players
+ * quite reasonably read as the game restarting itself.
+ */
+export function decksForPlayers(players: number): number {
+  return Math.max(1, Math.ceil(players / 4));
+}
+
+/**
  * Build a fresh, ordered deck. Ids are stable and unique across the deck, which
  * is what lets the client address a card ("play id X") and animate it by
  * layoutId without any extra bookkeeping.
+ *
+ * `copy` distinguishes the decks at a table playing with more than one. Without
+ * it every deck would mint the same ids, two different cards would answer to
+ * "red-5#3", and both addressing a card and animating it by layoutId would
+ * quietly target the wrong one. Copy 0 is unsuffixed so existing ids are
+ * unchanged.
  */
-export function buildDeck(): Card[] {
+export function buildDeck(copy = 0): Card[] {
   const cards: Card[] = [];
   let seq = 0;
-  const id = (prefix: string) => `${prefix}#${seq++}`;
+  const suffix = copy > 0 ? `/${copy}` : '';
+  const id = (prefix: string) => `${prefix}#${seq++}${suffix}`;
 
   for (const color of COLORS) {
     const c = color as Color;
@@ -84,5 +104,12 @@ export function buildDeck(): Card[] {
     }
   }
 
+  return cards;
+}
+
+/** `count` decks, each with its own id space. */
+export function buildDecks(count: number): Card[] {
+  const cards: Card[] = [];
+  for (let copy = 0; copy < count; copy++) cards.push(...buildDeck(copy));
   return cards;
 }

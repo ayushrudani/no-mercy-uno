@@ -4,7 +4,15 @@
  */
 
 import { useState } from 'react';
-import { DEFAULT_ROOM_SETTINGS, MAX_PLAYERS, MIN_PLAYERS, type RoomSettings } from '@nmu/shared';
+import {
+  DEFAULT_HAND_SIZE,
+  DEFAULT_ROOM_SETTINGS,
+  MAX_HAND_SIZE,
+  MAX_PLAYERS,
+  MIN_HAND_SIZE,
+  MIN_PLAYERS,
+  type RoomSettings,
+} from '@nmu/shared';
 import { useStore } from '../lib/store.js';
 import type { Profile } from '../lib/api.js';
 import { FullscreenButton } from '../components/table-parts.js';
@@ -102,6 +110,26 @@ export function Lobby({ profile, onOpenProfile }: { profile: Profile; onOpenProf
             onChange={(e) => setSettings({ ...settings, maxPlayers: Number(e.target.value) })}
             className="mt-1 w-full accent-amber-400"
           />
+
+          <label className="mt-3 block text-[11px] font-medium text-white/45">
+            Cards dealt each: {settings.rules.handSize ?? DEFAULT_HAND_SIZE}
+          </label>
+          <input
+            type="range"
+            min={MIN_HAND_SIZE}
+            max={MAX_HAND_SIZE}
+            value={settings.rules.handSize ?? DEFAULT_HAND_SIZE}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                rules: { ...settings.rules, handSize: Number(e.target.value) },
+              })
+            }
+            className="mt-1 w-full accent-amber-400"
+          />
+          <p className="mt-1 text-[10px] text-white/30">
+            Seven is the official deal. Fewer makes for a quicker game.
+          </p>
 
           <label className="mt-3 block text-[11px] font-medium text-white/45">Turn timer</label>
           <div className="mt-1 flex gap-1.5">

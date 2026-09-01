@@ -5,7 +5,7 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Card, Color, OpponentView, RoomMember } from '@nmu/shared';
 import { CardBack, CardFace, COLOR_HEX, type CardBackId } from './Card.js';
 import { enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen } from '../lib/fullscreen.js';
@@ -89,6 +89,7 @@ export function Seat({
   player,
   member,
   isTurn,
+  isNext = false,
   seconds,
   turnTotal,
   level = 0,
@@ -96,6 +97,8 @@ export function Seat({
   player: OpponentView;
   member: RoomMember | undefined;
   isTurn: boolean;
+  /** Plays after the current player, if nothing changes it. */
+  isNext?: boolean;
   seconds: number | null;
   turnTotal: number;
   /** Live voice loudness 0..1, for the speaking ring. */
@@ -115,7 +118,9 @@ export function Seat({
           className={[
             'grid place-items-center rounded-full text-[0.7rem] font-bold',
             'bg-white/10 ring-2 transition-shadow duration-100',
-            isTurn ? 'ring-amber-300' : 'ring-white/15',
+            // Deliberately the same hue as the active ring but faded, so the
+            // running order reads as one sequence rather than two states.
+            isTurn ? 'ring-amber-300' : isNext ? 'ring-amber-300/35' : 'ring-white/15',
           ].join(' ')}
           style={{
             width: 'var(--seat)',
@@ -139,6 +144,11 @@ export function Seat({
         {player.calledUno && !player.eliminated && (
           <span className="absolute -left-2 -top-1 rounded-full bg-uno-red px-1.5 py-px text-[8px] font-black italic ring-1 ring-white/50">
             UNO
+          </span>
+        )}
+        {isNext && !isTurn && !player.eliminated && (
+          <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-amber-300/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wide text-amber-200/70 ring-1 ring-amber-300/25">
+            next
           </span>
         )}
       </div>
@@ -325,7 +335,66 @@ const COLORS: Color[] = ['red', 'yellow', 'green', 'blue'];
  * Sitting it next to the deck keeps the table readable and puts the choice
  * where the eye already is.
  */
-export function ColorPicker({
+/**
+ * Centres a decision over the middle of the table.
+ *
+ * Not a full-screen modal: covering the table hides the very cards the decision
+ * is about, and it read as the game being interrupted rather than continuing.
+ * Not tucked beside the deck either -- that put it at the edge of vision, and
+ * on a phone it slid up from the bottom edge where it looked like a system
+ * sheet. The middle of the table is where the player is already looking.
+ *
+ * Nothing is dimmed or blurred. Covering the screen to ask a one-tap question
+ * reads as the game stopping; the table stays fully visible and only the
+ * control itself takes clicks.
+ */
+export function TableCenter({ children }: { children: ReactNode }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center px-4">
+      <div className="pointer-events-auto relative">{children}</div>
+    </div>
+  );
+}
+
+/** Colour names, so the choice is not colour-perception only. */
+const COLOR_LABEL: Record<Color, string> = {
+  red: 'Red',
+  yellow: 'Yellow',
+  green: 'Green',
+  blue: 'Blue',
+};
+
+/**
+ * The colour wheel, as the physical game and the official app both do it.
+ *
+ * A ring of four quadrants dropped in the middle of the table -- not a panel,
+ * not a sheet from the bottom of the screen, and nothing dimmed behind it. The
+ * shape is the instruction: there is no reading required to know that tapping
+ * a colour picks it.
+ *
+ * Drawn as SVG rather than four divs because the quadrants have to be actual
+ * pie slices. Square buttons arranged two-by-two look like a settings dialog;
+ * the wedge is what makes it read as the UNO wheel.
+ */
+const WHEEL: { color: Color; from: number; to: number }[] = [
+  // SVG angles run clockwise from the positive x axis, so these place red top
+  // left, yellow top right, green bottom right, blue bottom left.
+  { color: 'red', from: 180, to: 270 },
+  { color: 'yellow', from: 270, to: 360 },
+  { color: 'green', from: 0, to: 90 },
+  { color: 'blue', from: 90, to: 180 },
+];
+
+/** Pie slice from `from` to `to` degrees, centred on (50,50). */
+function slicePath(from: number, to: number, r: number): string {
+  const point = (deg: number) => {
+    const rad = (deg * Math.PI) / 180;
+    return `${(50 + r * Math.cos(rad)).toFixed(3)} ${(50 + r * Math.sin(rad)).toFixed(3)}`;
+  };
+  return `M 50 50 L ${point(from)} A ${r} ${r} 0 0 1 ${point(to)} Z`;
+}
+
+export function ColorWheel({
   title,
   subtitle,
   onPick,
@@ -338,46 +407,80 @@ export function ColorPicker({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.85, x: -12 }}
-      animate={{ opacity: 1, scale: 1, x: 0 }}
-      exit={{ opacity: 0, scale: 0.85 }}
-      transition={{ type: 'spring', stiffness: 460, damping: 26 }}
-      className="panel panel-raised shrink-0 rounded-2xl p-2.5 text-center ring-2 ring-amber-300/50"
+      initial={{ opacity: 0, scale: 0.7, rotate: -25 }}
+      animate={{ opacity: 1, scale: 1, rotate: 0 }}
+      exit={{ opacity: 0, scale: 0.7, rotate: 12 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 24 }}
+      className="flex flex-col items-center gap-2"
     >
-      <div className="text-[10px] font-bold leading-tight">{title}</div>
-      {subtitle && (
-        <div className="mt-0.5 max-w-[8.5rem] text-[9px] leading-snug text-white/45">{subtitle}</div>
-      )}
+      <svg
+        viewBox="0 0 100 100"
+        role="group"
+        aria-label={title}
+        className="h-[min(16rem,46vh)] w-[min(16rem,60vw)] drop-shadow-[0_18px_40px_rgba(0,0,0,.65)]"
+      >
+        {/* Rim, so the wheel reads as an object sitting on the felt. */}
+        <circle cx="50" cy="50" r="49" fill="rgb(9 12 18 / 0.92)" />
 
-      <div className="mt-2 grid grid-cols-2 gap-1.5">
-        {COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => onPick(c)}
-            aria-label={c}
-            style={{
-              background: COLOR_HEX[c],
-              width: 'calc(var(--pile-w) * 0.46)',
-              height: 'calc(var(--pile-w) * 0.46)',
+        {WHEEL.map(({ color, from, to }) => (
+          <path
+            key={color}
+            d={slicePath(from, to, 45)}
+            fill={COLOR_HEX[color]}
+            role="button"
+            tabIndex={0}
+            aria-label={COLOR_LABEL[color]}
+            onClick={() => onPick(color)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onPick(color);
+              }
             }}
-            className="rounded-xl shadow-lg ring-2 ring-white/25 transition hover:scale-110 hover:ring-white/70 active:scale-95"
+            className="cursor-pointer outline-none transition-[filter,opacity] hover:brightness-125 focus-visible:brightness-125 active:opacity-80"
+            style={{ transformOrigin: '50px 50px' }}
           />
         ))}
-      </div>
 
-      {onCancel && (
-        <button
-          type="button"
-          onClick={onCancel}
-          className="mt-1.5 text-[9px] text-white/40 underline underline-offset-2"
+        {/* Spokes and hub, cut out of the middle so the wheel reads as a ring. */}
+        <path
+          d="M 50 5 L 50 95 M 5 50 L 95 50"
+          stroke="rgb(9 12 18 / 0.92)"
+          strokeWidth="3"
+          fill="none"
+        />
+        <circle cx="50" cy="50" r="15" fill="rgb(9 12 18 / 0.95)" />
+        <text
+          x="50"
+          y="50"
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-white/80 text-[9px] font-black italic"
         >
-          cancel
-        </button>
-      )}
+          PICK
+        </text>
+      </svg>
+
+      <div className="max-w-[15rem] text-center">
+        <div className="text-[11px] font-bold text-white/85">{title}</div>
+        {subtitle && (
+          <div className="mt-0.5 text-[10px] leading-snug text-white/45">{subtitle}</div>
+        )}
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="mt-1 text-[10px] text-white/40 underline underline-offset-2 transition hover:text-white/70"
+          >
+            cancel
+          </button>
+        )}
+      </div>
     </motion.div>
   );
 }
+
+
 
 /**
  * Who to swap hands with after playing a 7.
@@ -731,5 +834,84 @@ export function HandSortToggle({
     >
       {sort === 'color' ? '🎨 colour' : '⇄ dealt'}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Direction of play
+// ---------------------------------------------------------------------------
+
+/**
+ * A ring around the piles that turns the way play is going.
+ *
+ * The direction used to be a single character in the corner of the top bar,
+ * which is both easy to miss and hard to interpret -- after a reverse nobody
+ * could say which way things now ran. A ring physically rotating around the
+ * middle of the table says it without being read.
+ *
+ * Slow and low-contrast on purpose: it is orientation, not an alert, and
+ * something spinning quickly in the middle of the table would be exhausting
+ * over a whole game.
+ */
+export function DirectionRing({ direction }: { direction: 1 | -1 }) {
+  return (
+    <motion.svg
+      viewBox="0 0 100 100"
+      aria-hidden
+      // z-0 with the piles above it: an absolutely positioned sibling otherwise
+      // paints over them, and an arrow across the face of the discard pile is
+      // worse than no arrow at all.
+      className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2"
+      // Sized to clear the piles without reaching the seat row above or the
+      // "then <name>" line below -- it is orientation, not another thing to
+      // read, and it must not collide with either.
+      style={{ width: 'calc(var(--pile-w) * 2.2)', height: 'calc(var(--pile-w) * 2.2)' }}
+      animate={{ rotate: 360 * direction }}
+      transition={{ repeat: Infinity, ease: 'linear', duration: 16 }}
+    >
+      {/* Two opposed arcs with a head on each, so the direction reads from any
+          angle. A dashed full circle was tried first and read as texture
+          rather than motion -- an arc with a point on the end reads as an
+          arrow, which is the whole job. */}
+      {[0, 180].map((at) => (
+        <g key={at} transform={`rotate(${at} 50 50)`}>
+          <path
+            d="M 6 50 A 44 44 0 0 1 28 12"
+            fill="none"
+            stroke="rgb(251 191 36 / 0.32)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            transform={direction === -1 ? 'scale(-1 1) translate(-100 0)' : undefined}
+          />
+          <polygon
+            points="28,6 36,14 24,18"
+            fill="rgb(251 191 36 / 0.45)"
+            transform={direction === -1 ? 'scale(-1 1) translate(-100 0)' : undefined}
+          />
+        </g>
+      ))}
+    </motion.svg>
+  );
+}
+
+/**
+ * "Then <name>", under the piles.
+ *
+ * The single most asked question at a real table, and the one the screen could
+ * not answer: the +10 in your hand lands on somebody, and until now you had to
+ * work out who from the seating and a small arrow.
+ */
+export function NextUp({ name }: { name: string | null }) {
+  if (!name) return null;
+  return (
+    <motion.div
+      key={name}
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-1.5 text-[10px] text-white/35"
+    >
+      <span className="text-white/25">then</span>
+      <span className="font-semibold text-white/60">{name}</span>
+    </motion.div>
   );
 }

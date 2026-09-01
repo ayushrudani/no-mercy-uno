@@ -80,6 +80,11 @@ export const turnSecondsSchema = z.union([
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 
+/** Cards dealt to each player at the start. Seven is the official deal. */
+export const MIN_HAND_SIZE = 3;
+export const MAX_HAND_SIZE = 12;
+export const DEFAULT_HAND_SIZE = 7;
+
 /** Reactions are a fixed set: an open emoji field is an abuse surface. */
 export const REACTIONS = ['👏', '😂', '😱', '😭', '🔥', '💀', '🤡', '🎉', '👀', '🖕'] as const;
 export const reactionSchema = z.enum(REACTIONS);
@@ -100,7 +105,7 @@ export const ruleOverridesSchema = z.object({
   rouletteColorChosenBy: z.enum(['target', 'player']).optional(),
   /** 0 turns knock-out off entirely. */
   eliminationAt: z.union([z.literal(0), z.number().int().min(10).max(40)]).optional(),
-  handSize: z.number().int().min(3).max(12).optional(),
+  handSize: z.number().int().min(MIN_HAND_SIZE).max(MAX_HAND_SIZE).optional(),
 });
 export type RuleOverrides = z.infer<typeof ruleOverridesSchema>;
 
